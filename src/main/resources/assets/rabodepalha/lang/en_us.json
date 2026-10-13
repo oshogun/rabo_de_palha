@@ -3,5 +3,6 @@
   "key.category.rabodepalha.rts": "Rabo-de-palha RTS",
   "key.rabodepalha.rts_toggle": "Toggle RTS mode",
   "key.rabodepalha.rts_rotate_left": "Rotate RTS camera left",
-  "key.rabodepalha.rts_rotate_right": "Rotate RTS camera right"
+  "key.rabodepalha.rts_rotate_right": "Rotate RTS camera right",
+  "rabodepalha.rts.selected": "Selected: %s"
 }

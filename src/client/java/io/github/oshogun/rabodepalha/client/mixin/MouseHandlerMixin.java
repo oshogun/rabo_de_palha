@@ -15,12 +15,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
- * the wheel zooms instead of changing the spectator fly speed, and dragging with the middle button
- * rotates the camera.
+ * the left button selects workers (click or box drag), the wheel zooms instead of changing the
+ * spectator fly speed, and dragging with the middle button rotates the camera.
  */
 @Mixin(MouseHandler.class)
 abstract class MouseHandlerMixin {
@@ -30,6 +31,12 @@ abstract class MouseHandlerMixin {
 
 	@Shadow
 	private double accumulatedDX;
+
+	@Shadow
+	private double xpos;
+
+	@Shadow
+	private double ypos;
 
 	@Unique
 	private boolean rabodepalha$middleDragging;
@@ -47,10 +54,18 @@ abstract class MouseHandlerMixin {
 	private void rabodepalha$rtsButton(long handle, MouseButtonInfo rawButtonInfo, int action, CallbackInfo ci) {
 		if (!this.rabodepalha$rtsWorldInput(handle)) {
 			this.rabodepalha$middleDragging = false;
+			// A screen opened mid-drag: the box can no longer finish.
+			RtsSelectionClient.cancelDrag();
 			return;
 		}
 		if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_MIDDLE) {
 			this.rabodepalha$middleDragging = action == 1;
+		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_LEFT) {
+			if (action == 1) {
+				RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
+			} else if (action == 0) {
+				RtsSelectionClient.onLeftRelease(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
+			}
 		}
 		ci.cancel();
 	}
@@ -73,6 +88,7 @@ abstract class MouseHandlerMixin {
 			this.rabodepalha$middleDragging = false;
 			return;
 		}
+		RtsSelectionClient.onDragMove(this.xpos, this.ypos);
 		if (this.rabodepalha$middleDragging && this.minecraft.isWindowActive() && this.accumulatedDX != 0.0) {
 			RtsClient.rotate((float) (this.accumulatedDX * RtsCameraMath.DRAG_ROTATE_DEG_PER_PIXEL));
 		}

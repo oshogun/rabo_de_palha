@@ -77,6 +77,7 @@ public final class RtsClient {
 			return;
 		}
 		active = value;
+		RtsSelectionClient.clear();
 		if (value) {
 			height = RtsCameraMath.DEFAULT_HEIGHT;
 			groundY = Double.NaN;
@@ -89,6 +90,7 @@ public final class RtsClient {
 
 	private static void reset() {
 		active = false;
+		RtsSelectionClient.clear();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
 		groundY = Double.NaN;
 	}
@@ -99,6 +101,7 @@ public final class RtsClient {
 				ClientPlayNetworking.send(RtsTogglePayload.INSTANCE);
 			}
 		}
+		RtsSelectionClient.tick(client);
 
 		LocalPlayer player = client.player;
 		if (!active || player == null || client.level == null) {
@@ -160,7 +163,8 @@ public final class RtsClient {
 			right -= 1.0;
 		}
 		RtsCameraMath.PanInput keys = new RtsCameraMath.PanInput(forward, right);
-		if (!client.isWindowActive()) {
+		if (!client.isWindowActive() || RtsSelectionClient.isDragging()) {
+			// No edge scroll while dragging a selection box, which often ends at the screen edge.
 			return keys;
 		}
 		Window window = client.getWindow();

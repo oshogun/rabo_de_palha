@@ -3,6 +3,7 @@
 	"package": "io.github.oshogun.rabodepalha.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"KeyboardHandlerMixin",
 		"KeyboardInputMixin",
 		"MinecraftMixin",
 		"MouseHandlerMixin",

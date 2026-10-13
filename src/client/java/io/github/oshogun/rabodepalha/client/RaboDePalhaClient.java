@@ -5,6 +5,7 @@ import net.minecraft.client.renderer.entity.EntityRenderers;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsHud;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 
 public class RaboDePalhaClient implements ClientModInitializer {
@@ -12,6 +13,7 @@ public class RaboDePalhaClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		EntityRenderers.register(ModEntities.WORKER, WorkerRenderer::new);
 		RtsClient.init();
+		RtsHud.init();
 		RaboDePalha.LOGGER.info("Rabo-de-palha client initialized");
 	}
 }
