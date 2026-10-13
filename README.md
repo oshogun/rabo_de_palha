@@ -63,6 +63,12 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   capped, and the server skips its "moved too quickly" check for players in RTS mode only.
 - Zoom (camera height) with the mouse wheel; rotate with `Q`/`E` or middle-drag. `E` does not
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
+- Orders: with workers selected, right-click a block to send them there (move). Hold `Left Alt`
+  (rebindable) and right-click to mine it; hold `Left Ctrl` (rebindable) and right-click to place
+  the block in the selected hotbar slot (the hotbar scroll/number keys still work, and the HUD shows
+  `Place: <item>`). `Shift` appends to each worker's queue; otherwise the queue is replaced. The
+  server needs permission level 2 and rejects unknown or dead workers and targets too far away
+  (128 blocks); the HUD shows the result in green or red for a few seconds.
 - Logging out, dying, respawning or a server restart while in RTS mode returns the player to
   normal mode at the entry position. Using `/gamemode` also ends RTS mode.
 

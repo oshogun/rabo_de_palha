@@ -16,6 +16,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsStatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTogglePayload;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
@@ -31,6 +32,10 @@ public final class RtsClient {
 	public static KeyMapping toggleKey;
 	public static KeyMapping rotateLeftKey;
 	public static KeyMapping rotateRightKey;
+	/** Held while right-clicking to give a mine order instead of a move order. */
+	public static KeyMapping mineOrderKey;
+	/** Held while right-clicking to place the selected hotbar block. */
+	public static KeyMapping placeOrderKey;
 
 	/** How much of the gap to the target camera height is closed per tick. */
 	private static final double HEIGHT_SMOOTHING = 0.35;
@@ -51,9 +56,15 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_Q, CATEGORY));
 		rotateRightKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_rotate_right",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_E, CATEGORY));
+		mineOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_mine_order",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_LALT, CATEGORY));
+		placeOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_place_order",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_LCONTROL, CATEGORY));
 
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
+		ClientPlayNetworking.registerGlobalReceiver(RtsOrderFeedbackPayload.TYPE,
+				(payload, context) -> RtsHud.showFeedback(payload.ok(), payload.message()));
 		ClientTickEvents.END_CLIENT_TICK.register(RtsClient::tick);
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> reset());
 	}

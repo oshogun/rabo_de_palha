@@ -4,5 +4,22 @@
   "key.rabodepalha.rts_toggle": "Toggle RTS mode",
   "key.rabodepalha.rts_rotate_left": "Rotate RTS camera left",
   "key.rabodepalha.rts_rotate_right": "Rotate RTS camera right",
-  "rabodepalha.rts.selected": "Selected: %s"
+  "key.rabodepalha.rts_mine_order": "RTS mine order (hold + right-click)",
+  "key.rabodepalha.rts_place_order": "RTS place order (hold + right-click)",
+  "rabodepalha.rts.selected": "Selected: %s",
+  "rabodepalha.rts.place_block": "Place: %s",
+  "rabodepalha.rts.order.queued": "Appended %s at %s %s %s for %s worker(s)",
+  "rabodepalha.rts.order.replaced": "Replaced orders with %s at %s %s %s for %s worker(s)",
+  "rabodepalha.rts.order.partial": "%s, %s rejected (unknown: %s, too far: %s)",
+  "rabodepalha.rts.order.no_permission": "You need operator permission (level 2) to give orders.",
+  "rabodepalha.rts.order.not_rts": "You must be in RTS mode to give orders.",
+  "rabodepalha.rts.order.no_workers": "No workers in the order (or too many).",
+  "rabodepalha.rts.order.unknown_worker": "%s unknown worker(s)",
+  "rabodepalha.rts.order.too_far": "%s worker(s) too far from the target",
+  "rabodepalha.rts.order.target_too_far": "That target is too far away.",
+  "rabodepalha.rts.order.not_loaded": "That target is not loaded.",
+  "rabodepalha.rts.order.no_block": "Select a block in the hotbar to place.",
+  "rabodepalha.rts.order.air": "There is nothing to mine there.",
+  "rabodepalha.rts.order.nothing_selected": "No workers selected.",
+  "rabodepalha.rts.order.no_target": "There is no block under the cursor."
 }

@@ -8,11 +8,16 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
 
-/** RTS mode HUD: the number of selected workers, and the selection box while dragging. */
+/**
+ * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
+ * would use, and the selection box while dragging.
+ */
 public final class RtsHud {
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
 	private static final int BOX_FILL_COLOR = 0x3380FF80;
@@ -22,6 +27,22 @@ public final class RtsHud {
 	private RtsHud() {
 	}
 
+	private static final int OK_COLOR = 0xFF55FF55;
+	private static final int ERROR_COLOR = 0xFFFF5555;
+	/** How long an order feedback line stays on screen (about 60 ticks). */
+	private static final long FEEDBACK_MILLIS = 3000L;
+
+	private static boolean feedbackOk;
+	private static Component feedback;
+	private static long feedbackExpiresAt;
+
+	/** Shows the outcome of an RTS order for a few seconds. */
+	public static void showFeedback(boolean ok, Component message) {
+		feedbackOk = ok;
+		feedback = message;
+		feedbackExpiresAt = System.currentTimeMillis() + FEEDBACK_MILLIS;
+	}
+
 	public static void init() {
 		HudElementRegistry.attachElementAfter(VanillaHudElements.HOTBAR, RaboDePalha.id("rts_selection"),
 				RtsHud::extract);
@@ -29,13 +50,33 @@ public final class RtsHud {
 
 	private static void extract(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
 		if (!RtsClient.isActive()) {
+			// Leaving RTS mode drops any pending order feedback.
+			feedback = null;
 			return;
 		}
 		Minecraft client = Minecraft.getInstance();
+		int lineHeight = client.font.lineHeight + 2;
+		int y = MARGIN;
 		int count = RtsSelectionClient.count();
 		if (count > 0) {
-			graphics.text(client.font, Component.translatable("rabodepalha.rts.selected", count), MARGIN, MARGIN,
+			graphics.text(client.font, Component.translatable("rabodepalha.rts.selected", count), MARGIN, y,
 					TEXT_COLOR);
+			y += lineHeight;
+		}
+		if (feedback != null) {
+			if (System.currentTimeMillis() < feedbackExpiresAt) {
+				graphics.text(client.font, feedback, MARGIN, y, feedbackOk ? OK_COLOR : ERROR_COLOR);
+				y += lineHeight;
+			} else {
+				feedback = null;
+			}
+		}
+		if (client.player != null) {
+			ItemStack held = client.player.getInventory().getItem(client.player.getInventory().getSelectedSlot());
+			if (held.getItem() instanceof BlockItem) {
+				graphics.text(client.font, Component.translatable("rabodepalha.rts.place_block", held.getHoverName()),
+						MARGIN, y, TEXT_COLOR);
+			}
 		}
 
 		RtsScreenRect rect = RtsSelectionClient.currentDragRect();

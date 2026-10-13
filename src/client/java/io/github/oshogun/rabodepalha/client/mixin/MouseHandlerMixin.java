@@ -15,12 +15,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsOrdersClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
- * the left button selects workers (click or box drag), the wheel zooms instead of changing the
+ * the left button selects workers (click or box drag), the right button orders them, the wheel zooms instead of changing the
  * spectator fly speed, and dragging with the middle button rotates the camera.
  */
 @Mixin(MouseHandler.class)
@@ -66,6 +67,8 @@ abstract class MouseHandlerMixin {
 			} else if (action == 0) {
 				RtsSelectionClient.onLeftRelease(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
 			}
+		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_RIGHT && action == 1) {
+			RtsOrdersClient.onRightClick(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
 		}
 		ci.cancel();
 	}

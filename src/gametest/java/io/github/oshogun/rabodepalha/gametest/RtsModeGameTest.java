@@ -49,7 +49,7 @@ public class RtsModeGameTest {
 	private static final BlockPos ELSEWHERE = new BlockPos(5, 4, 6);
 
 	/** Logs in a non-op mock player in SURVIVAL, standing at {@link #START}. */
-	private static ServerPlayer joinPlayer(GameTestHelper helper) {
+	static ServerPlayer joinPlayer(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
 		String name = "rts-" + PLAYER_COUNTER.incrementAndGet();
 		CommonListenerCookie cookie = CommonListenerCookie.createInitial(new GameProfile(UUID.randomUUID(), name), false);
@@ -67,7 +67,7 @@ public class RtsModeGameTest {
 		player.teleportTo(helper.getLevel(), pos.x, pos.y, pos.z, Set.of(), yRot, xRot, true);
 	}
 
-	private static void leave(ServerPlayer player) {
+	static void leave(ServerPlayer player) {
 		player.level().getServer().getPlayerList().remove(player);
 	}
 

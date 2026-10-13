@@ -12,6 +12,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -154,18 +155,42 @@ public final class RtsSelectionClient {
 				: null;
 	}
 
-	/** The id of the nearest worker under the cursor that is not hidden behind blocks, or {@code null}. */
-	private static @Nullable Integer clickPick(Minecraft client, double x, double y) {
+	/** The cursor ray through the RTS camera, from the camera position out to {@link #PICK_RANGE}. */
+	private record Ray(Vec3 start, Vec3 end) {
+	}
+
+	private static Ray cursorRay(Minecraft client, double x, double y) {
 		Camera camera = client.gameRenderer.mainCamera();
 		Window window = client.getWindow();
 		double[] dir = RtsPickMath.cursorRayDir(x, y, window.getScreenWidth(), window.getScreenHeight(),
 				camera.getFov(), camera.yRot(), camera.xRot());
 		Vec3 start = camera.position();
-		Vec3 end = start.add(dir[0] * PICK_RANGE, dir[1] * PICK_RANGE, dir[2] * PICK_RANGE);
+		return new Ray(start, start.add(dir[0] * PICK_RANGE, dir[1] * PICK_RANGE, dir[2] * PICK_RANGE));
+	}
 
-		HitResult blockHit = client.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER,
+	private static @Nullable BlockHitResult clipBlock(ClientLevel level, Ray ray) {
+		BlockHitResult hit = level.clip(new ClipContext(ray.start(), ray.end(), ClipContext.Block.COLLIDER,
 				ClipContext.Fluid.NONE, CollisionContext.empty()));
-		double maxDistSqr = blockHit.getType() == HitResult.Type.MISS
+		return hit.getType() == HitResult.Type.MISS ? null : hit;
+	}
+
+	/** The block under the cursor within {@link #PICK_RANGE}, or {@code null} if the ray hits nothing. */
+	static @Nullable BlockHitResult pickBlock(double x, double y) {
+		Minecraft client = Minecraft.getInstance();
+		if (client.level == null) {
+			return null;
+		}
+		return clipBlock(client.level, cursorRay(client, x, y));
+	}
+
+	/** The id of the nearest worker under the cursor that is not hidden behind blocks, or {@code null}. */
+	private static @Nullable Integer clickPick(Minecraft client, double x, double y) {
+		Ray ray = cursorRay(client, x, y);
+		Vec3 start = ray.start();
+		Vec3 end = ray.end();
+
+		BlockHitResult blockHit = clipBlock(client.level, ray);
+		double maxDistSqr = blockHit == null
 				? PICK_RANGE * PICK_RANGE
 				: blockHit.getLocation().distanceToSqr(start);
 
