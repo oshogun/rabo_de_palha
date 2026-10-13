@@ -4,6 +4,7 @@ import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
+import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -217,6 +218,40 @@ public class WorkerCommandGameTest {
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MineTask m && m.pos().equals(target),
 				"expected one mine " + target + ", got " + queue);
 		assertFeedback(helper, rec, "Queued mine " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void digQueuesDigAreaTask(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos from = helper.absolutePos(TARGET.above());
+		BlockPos to = helper.absolutePos(new BlockPos(3, 1, 4));
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp dig " + coords(from) + " " + coords(to) + " " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DigAreaTask d && d.from().equals(from) && d.to().equals(to),
+				"expected one dig " + from + " " + to + ", got " + queue);
+		assertFeedback(helper, rec, "Queued dig area " + helper.absolutePos(new BlockPos(3, 1, 4)).toShortString()
+				+ " to " + helper.absolutePos(new BlockPos(5, 2, 5)).toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void digTooLargeRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos from = helper.absolutePos(new BlockPos(0, 1, 0));
+		BlockPos to = from.offset(15, 16, 15);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		String error = expectFailure(helper, sourceAt(helper, rec, worker), "rdp dig " + coords(from) + " " + coords(to));
+
+		helper.assertTrue(error.contains("too large"), "unexpected error: " + error);
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
 		helper.succeed();
 	}
 

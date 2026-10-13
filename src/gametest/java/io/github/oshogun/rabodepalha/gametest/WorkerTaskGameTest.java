@@ -6,6 +6,7 @@ import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
+import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -46,6 +47,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
@@ -1231,6 +1233,181 @@ public class WorkerTaskGameTest {
 		var loadedQueue = listCodec.encodeStart(JsonOps.INSTANCE, loaded.tasks().snapshot()).getOrThrow();
 		helper.assertTrue(loaded.tasks().snapshot().size() == 3, "expected 3 restored tasks, got " + loaded.tasks().snapshot());
 		helper.assertTrue(savedQueue.equals(loadedQueue), "queue differs: " + savedQueue + " vs " + loadedQueue);
+		helper.succeed();
+	}
+
+	private static final BlockPos DIG_FROM = new BlockPos(3, 1, 3);
+	private static final BlockPos DIG_TO = new BlockPos(5, 2, 5);
+
+	/** Fills the box between {@code from} and {@code to} (relative) with {@code block}. */
+	private static void fill(GameTestHelper helper, BlockPos from, BlockPos to, Block block) {
+		BlockPos.betweenClosed(from, to).forEach(pos -> helper.setBlock(pos, block));
+	}
+
+	private static void assertAllAir(GameTestHelper helper, BlockPos from, BlockPos to, BlockPos except) {
+		for (BlockPos pos : BlockPos.betweenClosed(from, to)) {
+			if (!pos.equals(except)) {
+				helper.assertBlockPresent(Blocks.AIR, pos);
+			}
+		}
+	}
+
+	/** Cobblestone in the worker's inventory plus what lies around the test area. */
+	private static int cobblestoneAround(GameTestHelper helper, WorkerEntity worker) {
+		return count(worker, Items.COBBLESTONE) + itemsNear(helper, helper.absoluteVec(new Vec3(4, 1, 4)), 8.0, Items.COBBLESTONE);
+	}
+
+	private static String succeededNote(GameTestHelper helper, List<Recorded> outcomes) {
+		helper.assertTrue(outcomes.size() == 1, "dig not finished yet");
+		if (outcomes.get(0).outcome() instanceof TaskOutcome.Succeeded s) {
+			return s.note();
+		}
+		helper.fail("dig did not succeed: " + outcomes.get(0).outcome());
+		return "";
+	}
+
+	@GameTest(maxTicks = 2400)
+	public void digsStoneArea(GameTestHelper helper) {
+		layFloor(helper);
+		fill(helper, DIG_FROM, DIG_TO, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new DigAreaTask(helper.absolutePos(DIG_FROM), helper.absolutePos(DIG_TO)));
+
+		helper.succeedWhen(() -> {
+			String note = succeededNote(helper, outcomes);
+			helper.assertTrue(note.equals("dug 18 blocks"), "unexpected note: " + note);
+			assertAllAir(helper, DIG_FROM, DIG_TO, null);
+			int drops = cobblestoneAround(helper, worker);
+			helper.assertTrue(drops == 18, "expected 18 cobblestone in the inventory or nearby, got " + drops);
+		});
+	}
+
+	@GameTest(maxTicks = 2400)
+	public void digAreaSkipsBedrock(GameTestHelper helper) {
+		layFloor(helper);
+		fill(helper, DIG_FROM, DIG_TO, Blocks.STONE);
+		BlockPos bedrock = new BlockPos(4, 2, 4);
+		helper.setBlock(bedrock, Blocks.BEDROCK);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new DigAreaTask(helper.absolutePos(DIG_FROM), helper.absolutePos(DIG_TO)));
+
+		helper.succeedWhen(() -> {
+			String note = succeededNote(helper, outcomes);
+			helper.assertTrue(note.startsWith("dug 17 blocks; skipped: Bedrock @ " + helper.absolutePos(bedrock).toShortString() + " (UNBREAKABLE)"),
+					"bedrock not reported: " + note);
+			helper.assertBlockPresent(Blocks.BEDROCK, bedrock);
+			assertAllAir(helper, DIG_FROM, DIG_TO, bedrock);
+			int drops = cobblestoneAround(helper, worker);
+			helper.assertTrue(drops == 17, "expected 17 cobblestone in the inventory or nearby, got " + drops);
+		});
+	}
+
+	@GameTest(maxTicks = 2400)
+	public void digAreaWorkerStartsInside(GameTestHelper helper) {
+		layFloor(helper);
+		// A full layer the worker stands on, and a ring around it at its feet; it has to step off to finish.
+		BlockPos from = new BlockPos(1, 1, 1);
+		BlockPos to = new BlockPos(3, 2, 3);
+		BlockPos feet = new BlockPos(2, 2, 2);
+		fill(helper, from, to, Blocks.STONE);
+		helper.setBlock(feet, Blocks.AIR);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, feet);
+		worker.tasks().addListener((task, outcome) -> outcomes.add(new Recorded(task, outcome)));
+		worker.insertOrDrop(new ItemStack(Items.STONE_PICKAXE));
+		worker.tasks().enqueue(new DigAreaTask(helper.absolutePos(from), helper.absolutePos(to)));
+
+		helper.succeedWhen(() -> {
+			String note = succeededNote(helper, outcomes);
+			helper.assertTrue(note.equals("dug 17 blocks"), "unexpected note: " + note);
+			assertAllAir(helper, from, to, null);
+		});
+	}
+
+	@GameTest(maxTicks = 1200)
+	public void digAreaLeavesWater(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos from = new BlockPos(3, 1, 3);
+		BlockPos to = new BlockPos(5, 1, 5);
+		BlockPos water = new BlockPos(5, 1, 5);
+		fill(helper, from, to, Blocks.STONE);
+		helper.setBlock(water, Blocks.WATER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.STONE_PICKAXE));
+		worker.tasks().enqueue(new DigAreaTask(helper.absolutePos(from), helper.absolutePos(to)));
+
+		helper.succeedWhen(() -> {
+			String note = succeededNote(helper, outcomes);
+			helper.assertTrue(note.equals("dug 8 blocks"), "unexpected note: " + note);
+			helper.assertTrue(helper.getBlockState(water).getFluidState().isSource(), "water source is gone");
+			// The freed water flows into the dug blocks, so they are air or water.
+			for (BlockPos pos : BlockPos.betweenClosed(from, to)) {
+				helper.assertTrue(helper.getBlockState(pos).isAir() || helper.getBlockState(pos).is(Blocks.WATER),
+						"not dug at " + pos.toShortString() + ": " + helper.getBlockState(pos));
+			}
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void digAreaOutOfReachIsUnreachable(GameTestHelper helper) {
+		layFloor(helper);
+		// Floating too high to be reached from the floor, with nothing to stand on near it.
+		BlockPos stone = new BlockPos(6, 6, 6);
+		helper.setBlock(stone, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.STONE_PICKAXE));
+		BlockPos abs = helper.absolutePos(stone);
+		worker.tasks().enqueue(new DigAreaTask(abs, abs));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.UNREACHABLE);
+			helper.assertBlockPresent(Blocks.STONE, stone);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void digAreaNeverStandsOnItsTarget(GameTestHelper helper) {
+		layFloor(helper);
+		// A floating block whose only stand spot is on top of it, reachable by dropping off a walkway
+		// whose own spots are too high to reach it. Slabs under it keep the floor from being a stand spot.
+		BlockPos stone = new BlockPos(4, 3, 4);
+		fill(helper, new BlockPos(0, 0, 0), new BlockPos(7, 0, 7), Blocks.STONE_SLAB);
+		fill(helper, new BlockPos(1, 5, 4), new BlockPos(3, 5, 4), Blocks.STONE);
+		helper.setBlock(stone, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, new BlockPos(2, 6, 4));
+		worker.tasks().addListener((task, outcome) -> outcomes.add(new Recorded(task, outcome)));
+		worker.insertOrDrop(new ItemStack(Items.STONE_PICKAXE));
+		BlockPos abs = helper.absolutePos(stone);
+		worker.tasks().enqueue(new DigAreaTask(abs, abs));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.UNREACHABLE);
+			helper.assertBlockPresent(Blocks.STONE, stone);
+			helper.assertTrue(worker.getY() >= helper.absoluteVec(new Vec3(0, 6, 0)).y,
+					"worker left the walkway: " + worker.position());
+		});
+	}
+
+	@GameTest
+	public void saveLoadKeepsDigArea(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos from = helper.absolutePos(DIG_TO);
+		BlockPos to = helper.absolutePos(DIG_FROM);
+		worker.tasks().enqueue(new DigAreaTask(from, to));
+
+		WorkerEntity loaded = roundTrip(helper, worker);
+
+		List<Task<WorkerEntity>> queue = loaded.tasks().snapshot();
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DigAreaTask d && d.from().equals(from) && d.to().equals(to),
+				"expected the dig area back, got " + queue);
 		helper.succeed();
 	}
 

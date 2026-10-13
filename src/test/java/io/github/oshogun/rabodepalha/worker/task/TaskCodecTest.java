@@ -153,6 +153,27 @@ class TaskCodecTest {
 		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
 	}
 
+	@Test
+	void digAreaRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			// Corners keep their order, even when "from" is the upper one.
+			DigAreaTask task = assertInstanceOf(DigAreaTask.class,
+					roundTrip(ops, new DigAreaTask(new BlockPos(4, 70, -2), new BlockPos(1, 68, -5))));
+			assertEquals(new BlockPos(4, 70, -2), task.from());
+			assertEquals(new BlockPos(1, 68, -5), task.to());
+		}
+	}
+
+	@Test
+	void digAreaTooLargeIsAnError() {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", DigAreaTask.TYPE_ID);
+		json.add("from", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, new BlockPos(16, 16, 16)).getOrThrow());
+
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
 	private static JsonObject withdrawJson() {
 		JsonObject json = new JsonObject();
 		json.addProperty("type", WithdrawTask.TYPE_ID);
@@ -180,6 +201,7 @@ class TaskCodecTest {
 		bogus.addProperty("type", "bogus");
 		list.add(bogus);
 		list.add(encode(new MoveToTask(new BlockPos(4, 5, 6), 99)));
+		list.add(encode(new DigAreaTask(new BlockPos(0, 1, 0), new BlockPos(2, 3, 2))));
 
 		// Same per-element decoding as TagValueInput's typed list: failures are skipped, the rest survive.
 		List<Task<WorkerEntity>> decoded = new ArrayList<>();
@@ -187,9 +209,10 @@ class TaskCodecTest {
 			TaskTypes.CODEC.parse(JsonOps.INSTANCE, element).result().ifPresent(decoded::add);
 		}
 
-		assertEquals(2, decoded.size());
+		assertEquals(3, decoded.size());
 		assertEquals(new BlockPos(1, 2, 3), assertInstanceOf(MineTask.class, decoded.get(0)).pos());
 		assertEquals(new BlockPos(4, 5, 6), assertInstanceOf(MoveToTask.class, decoded.get(1)).pos());
+		assertEquals(new BlockPos(2, 3, 2), assertInstanceOf(DigAreaTask.class, decoded.get(2)).to());
 	}
 
 	private static JsonElement encode(Task<WorkerEntity> task) {

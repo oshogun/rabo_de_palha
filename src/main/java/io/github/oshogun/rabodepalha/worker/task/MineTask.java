@@ -29,6 +29,8 @@ public final class MineTask implements Task<WorkerEntity> {
 	private static final int SWING_INTERVAL = 5;
 
 	private final BlockPos pos;
+	/** Never mine the block the worker stands on; not persisted, only set by tasks that build their own. */
+	private final boolean fromBeside;
 	private Approach approach;
 	private BlockState target;
 	private TaskOutcome startFailure;
@@ -37,7 +39,17 @@ public final class MineTask implements Task<WorkerEntity> {
 	private int miningTicks;
 
 	public MineTask(BlockPos pos) {
+		this(pos, false);
+	}
+
+	private MineTask(BlockPos pos, boolean fromBeside) {
 		this.pos = pos.immutable();
+		this.fromBeside = fromBeside;
+	}
+
+	/** A mine task that works on {@code pos} from beside it, never while standing on it. */
+	static MineTask fromBeside(BlockPos pos) {
+		return new MineTask(pos, true);
 	}
 
 	public BlockPos pos() {
@@ -53,7 +65,9 @@ public final class MineTask implements Task<WorkerEntity> {
 		miningTicks = 0;
 		startFailure = checkMineable(worker, level);
 		if (startFailure == null) {
-			approach = Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT);
+			approach = fromBeside
+					? Approach.toWorkOnFromBeside(pos, Approach.DEFAULT_TIMEOUT)
+					: Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT);
 			approach.start(worker);
 		}
 	}
@@ -87,6 +101,10 @@ public final class MineTask implements Task<WorkerEntity> {
 				return approach.failure();
 			case ARRIVED:
 				break;
+		}
+		if (fromBeside && worker.getOnPos().equals(pos)) {
+			// Pushed onto the block after arriving.
+			return TaskOutcome.failed(FailureReason.STUCK, "standing on " + pos.toShortString());
 		}
 
 		worker.getLookControl().setLookAt(Vec3.atCenterOf(pos));

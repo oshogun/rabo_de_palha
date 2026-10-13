@@ -61,6 +61,15 @@ public final class TaskTypes {
 					Codec.intRange(1, Integer.MAX_VALUE).optionalFieldOf("count", 1).forGetter(WithdrawTask::count)
 			).apply(instance, WithdrawTask::new)));
 
+	/** Only the corners: progress is not saved, a loaded task scans the area again. */
+	public static final MapCodec<DigAreaTask> DIG_AREA = register(DigAreaTask.TYPE_ID,
+			RecordCodecBuilder.<DigAreaTask>mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("from").forGetter(DigAreaTask::from),
+					BlockPos.CODEC.fieldOf("to").forGetter(DigAreaTask::to)
+			).apply(instance, DigAreaTask::new)).validate(task -> task.volume() <= DigAreaTask.MAX_VOLUME
+					? DataResult.success(task)
+					: DataResult.error(() -> "Dig area of " + task.volume() + " blocks exceeds " + DigAreaTask.MAX_VOLUME)));
+
 	/** Dispatches on a {@code type} field; an unknown type decodes to a {@link DataResult} error. */
 	public static final Codec<Task<WorkerEntity>> CODEC = Codec.STRING.partialDispatch("type",
 			task -> DataResult.success(task.typeId()), TaskTypes::codecFor);

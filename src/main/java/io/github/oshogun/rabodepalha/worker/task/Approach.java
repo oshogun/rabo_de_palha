@@ -27,6 +27,7 @@ public final class Approach {
 
 	private final BlockPos target;
 	private final boolean standAt;
+	private final boolean offTarget;
 	private final int timeoutTicks;
 
 	private List<BlockPos> candidates = List.of();
@@ -39,20 +40,29 @@ public final class Approach {
 	private State state = State.PATHING;
 	private TaskOutcome.Failed failure;
 
-	private Approach(BlockPos target, boolean standAt, int timeoutTicks) {
+	private Approach(BlockPos target, boolean standAt, boolean offTarget, int timeoutTicks) {
 		this.target = target.immutable();
 		this.standAt = standAt;
+		this.offTarget = offTarget;
 		this.timeoutTicks = timeoutTicks;
 	}
 
 	/** Reach = eye within {@link StandSpots#REACH} of the target's center (for mining/placing). */
 	public static Approach toWorkOn(BlockPos target, int timeoutTicks) {
-		return new Approach(target, false, timeoutTicks);
+		return new Approach(target, false, false, timeoutTicks);
+	}
+
+	/**
+	 * Like {@link #toWorkOn}, but never arrives while standing on the target and does not pick the
+	 * spot above it, so mining the target can't pull the floor from under the worker.
+	 */
+	public static Approach toWorkOnFromBeside(BlockPos target, int timeoutTicks) {
+		return new Approach(target, false, true, timeoutTicks);
 	}
 
 	/** Reach = within {@link #MOVE_REACH} of the target's bottom center (for moving). */
 	public static Approach toStandAt(BlockPos target, int timeoutTicks) {
-		return new Approach(target, true, timeoutTicks);
+		return new Approach(target, true, false, timeoutTicks);
 	}
 
 	public void start(WorkerEntity worker) {
@@ -70,7 +80,9 @@ public final class Approach {
 		}
 		candidates = standAt
 				? List.of(target)
-				: StandSpots.candidates(worker.level(), target, worker.position(), worker.getEyeHeight());
+				: StandSpots.candidates(worker.level(), target, worker.position(), worker.getEyeHeight()).stream()
+						.filter(spot -> !offTarget || !spot.below().equals(target))
+						.toList();
 		if (!canPath(worker)) {
 			// Freshly spawned/loaded or falling: navigation refuses to path until on ground.
 			pathPending = true;
@@ -140,6 +152,9 @@ public final class Approach {
 	}
 
 	public boolean inReach(WorkerEntity worker) {
+		if (offTarget && worker.getOnPos().equals(target)) {
+			return false;
+		}
 		return standAt
 				? worker.position().distanceTo(Vec3.atBottomCenterOf(target)) <= MOVE_REACH
 				: worker.getEyePosition().distanceTo(Vec3.atCenterOf(target)) <= StandSpots.REACH;

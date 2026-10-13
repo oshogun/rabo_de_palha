@@ -5,6 +5,7 @@ import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
+import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -19,6 +20,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -56,6 +58,9 @@ public final class WorkerCommands {
 	private static final SimpleCommandExceptionType ITEM_COMPONENTS_NOT_SUPPORTED = new SimpleCommandExceptionType(Component.literal(
 			"Item components ([...]) are not supported; deposit and withdraw match by item only"));
 
+	private static final DynamicCommandExceptionType AREA_TOO_LARGE = new DynamicCommandExceptionType(volume -> Component.literal(
+			"Dig area of " + volume + " blocks is too large; at most " + DigAreaTask.MAX_VOLUME + " blocks"));
+
 	private WorkerCommands() {
 	}
 
@@ -79,6 +84,9 @@ public final class WorkerCommands {
 				.then(Commands.literal("mine")
 						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos()),
 								(ctx, workers) -> enqueue(ctx, workers, () -> new MineTask(BlockPosArgument.getLoadedBlockPos(ctx, "pos"))))))
+				.then(Commands.literal("dig")
+						.then(Commands.argument("from", BlockPosArgument.blockPos())
+								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::dig))))
 				.then(Commands.literal("place")
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
@@ -221,6 +229,16 @@ public final class WorkerCommands {
 		String message = "Queued " + described + " for " + workers.size() + " worker(s)";
 		source.sendSuccess(() -> Component.literal(message), false);
 		return workers.size();
+	}
+
+	private static int dig(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) throws CommandSyntaxException {
+		BlockPos from = BlockPosArgument.getLoadedBlockPos(ctx, "from");
+		BlockPos to = BlockPosArgument.getLoadedBlockPos(ctx, "to");
+		DigAreaTask sample = new DigAreaTask(from, to);
+		if (sample.volume() > DigAreaTask.MAX_VOLUME) {
+			throw AREA_TOO_LARGE.create(sample.volume());
+		}
+		return enqueue(ctx, workers, () -> new DigAreaTask(from, to));
 	}
 
 	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */
