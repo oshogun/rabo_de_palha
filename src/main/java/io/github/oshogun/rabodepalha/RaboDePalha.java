@@ -1,5 +1,9 @@
 package io.github.oshogun.rabodepalha;
 
+import io.github.oshogun.rabodepalha.command.WorkerCommands;
+import io.github.oshogun.rabodepalha.registry.ModEntities;
+import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
+
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.resources.Identifier;
@@ -14,6 +18,9 @@ public class RaboDePalha implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		ModEntities.init();
+		TaskTypes.bootstrap();
+		WorkerCommands.register();
 		LOGGER.info("Rabo-de-palha initialized");
 	}
 

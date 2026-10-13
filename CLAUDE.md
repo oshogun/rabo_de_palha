@@ -46,3 +46,13 @@ headlessly from the terminal.
   - `./gradlew test` (JUnit unit tests)
   - `./gradlew runGametest` (headless server GameTests; exits non-zero on failure)
 - Never launch `runClient` from an agent: it opens a game window.
+- Readable sources (gitignored, under `build/mc-sources/`). To regenerate them:
+  - Run `./gradlew genSources`.
+  - Unzip `.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-common-*/26.3/*-sources.jar`
+    into `build/mc-sources/common`. Unzip the matching `minecraft-clientOnly-*` sources jar
+    into `build/mc-sources/client`.
+  - Download the Fabric API module sources jars (fabric-api 0.162.0+26.3) from
+    `maven.fabricmc.net` and unzip each into `build/mc-sources/fabric-api/<module>`,
+    e.g. `fabric-command-api-v2`.
+- Agents must grep `build/mc-sources` for vanilla and Fabric API code (Mojang names)
+  and must not rely on memory of older Minecraft/Fabric versions.

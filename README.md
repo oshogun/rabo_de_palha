@@ -1,8 +1,29 @@
 # Rabo-de-palha
 
 Rabo-de-palha is a Fabric mod for Minecraft 26.3: a colony-management game in the vein of
-RimWorld and Dwarf Fortress, built on top of Minecraft's world. It will start with an NPC
-worker bot that can mine and build. For now the repository is only the mod skeleton.
+RimWorld and Dwarf Fortress, built on top of Minecraft's world. The first milestone is an NPC
+worker bot (`rabodepalha:worker`) that runs a queue of basic tasks: move, mine and place.
+
+## Worker and `/rdp` debug commands
+
+Workers have an 18-slot inventory, never despawn, and have no spawn egg. Operators (permission
+level 2) drive them with `/rdp`. `[workers]` is an optional entity selector; it defaults to the
+nearest worker within 64 blocks. Terminal task outcomes are reported in chat to the ops who
+commanded that worker.
+
+```
+/rdp spawn [pos]
+/rdp list
+/rdp goto <pos> [workers]
+/rdp mine <pos> [workers]
+/rdp place <pos> <block> [workers]
+/rdp give <item> [count] [workers]
+/rdp queue [workers]
+/rdp clear [workers]
+```
+
+Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
+task restarts from scratch after a reload.
 
 ## Prerequisites
 
