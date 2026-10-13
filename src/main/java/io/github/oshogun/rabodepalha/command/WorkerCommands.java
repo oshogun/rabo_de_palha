@@ -12,6 +12,7 @@ import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -160,8 +161,9 @@ public final class WorkerCommands {
 		int run(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) throws CommandSyntaxException;
 	}
 
+	/** Visible for tests. */
 	@FunctionalInterface
-	private interface TaskFactory {
+	public interface TaskFactory {
 		Task<WorkerEntity> create() throws CommandSyntaxException;
 	}
 
@@ -244,14 +246,25 @@ public final class WorkerCommands {
 
 	private static int enqueue(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, TaskFactory factory)
 			throws CommandSyntaxException {
-		CommandSourceStack source = ctx.getSource();
-		rememberCommander(source, workers);
-		String described = null;
-		for (WorkerEntity worker : workers) {
-			Task<WorkerEntity> task = factory.create();
-			worker.tasks().enqueue(task);
-			described = task.describe();
+		return enqueue(ctx.getSource(), workers, factory);
+	}
+
+	/**
+	 * Gives each worker a task from {@code factory}, all or nothing: every task is created before any
+	 * worker is touched, so a factory failure leaves no worker with a new task and records no commander.
+	 * Visible for tests.
+	 */
+	public static int enqueue(CommandSourceStack source, List<WorkerEntity> workers, TaskFactory factory)
+			throws CommandSyntaxException {
+		List<Task<WorkerEntity>> tasks = new ArrayList<>(workers.size());
+		for (int i = 0; i < workers.size(); i++) {
+			tasks.add(factory.create());
 		}
+		rememberCommander(source, workers);
+		for (int i = 0; i < workers.size(); i++) {
+			workers.get(i).tasks().enqueue(tasks.get(i));
+		}
+		String described = tasks.isEmpty() ? null : tasks.get(tasks.size() - 1).describe();
 		String message = "Queued " + described + " for " + workers.size() + " worker(s)";
 		source.sendSuccess(() -> Component.literal(message), false);
 		return workers.size();

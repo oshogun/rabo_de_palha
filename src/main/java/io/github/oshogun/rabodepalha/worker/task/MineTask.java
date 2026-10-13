@@ -28,6 +28,14 @@ public final class MineTask implements Task<WorkerEntity> {
 	public static final String TYPE_ID = "mine";
 	private static final int SWING_INTERVAL = 5;
 
+	/** Sends the crack overlay of {@code pos} at {@code stage} (0-9), or clears it with -1. */
+	@FunctionalInterface
+	public interface CrackOverlay {
+		CrackOverlay LEVEL = (worker, pos, stage) -> worker.level().destroyBlockProgress(worker.getId(), pos, stage);
+
+		void send(WorkerEntity worker, BlockPos pos, int stage);
+	}
+
 	private final BlockPos pos;
 	/** Never mine the block the worker stands on; not persisted, only set by tasks that build their own. */
 	private final boolean fromBeside;
@@ -37,6 +45,8 @@ public final class MineTask implements Task<WorkerEntity> {
 	private float progress;
 	private int lastStage;
 	private int miningTicks;
+	/** Not persisted. */
+	private CrackOverlay overlay = CrackOverlay.LEVEL;
 
 	public MineTask(BlockPos pos) {
 		this(pos, false);
@@ -50,6 +60,12 @@ public final class MineTask implements Task<WorkerEntity> {
 	/** A mine task that works on {@code pos} from beside it, never while standing on it. */
 	static MineTask fromBeside(BlockPos pos) {
 		return new MineTask(pos, true);
+	}
+
+	/** Visible for tests: the crack overlay packet cannot be observed on the server. */
+	public MineTask withOverlay(CrackOverlay overlay) {
+		this.overlay = overlay;
+		return this;
 	}
 
 	public BlockPos pos() {
@@ -117,7 +133,7 @@ public final class MineTask implements Task<WorkerEntity> {
 			int stage = (int) (progress * 10.0F);
 			if (stage != lastStage) {
 				lastStage = stage;
-				level.destroyBlockProgress(worker.getId(), pos, stage);
+				overlay.send(worker, pos, stage);
 			}
 			return TaskOutcome.RUNNING;
 		}
@@ -166,7 +182,7 @@ public final class MineTask implements Task<WorkerEntity> {
 
 	@Override
 	public void stop(WorkerEntity worker, boolean cancelled) {
-		worker.level().destroyBlockProgress(worker.getId(), pos, -1);
+		overlay.send(worker, pos, -1);
 		if (approach != null) {
 			approach.stop(worker);
 		}

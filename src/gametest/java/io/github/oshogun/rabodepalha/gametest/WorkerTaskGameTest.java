@@ -525,6 +525,99 @@ public class WorkerTaskGameTest {
 	}
 
 	@GameTest(maxTicks = 400)
+	public void placeBedHeadBlockedFailsCleanly(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		BlockPos headRel = rel.north();
+		helper.setBlock(headRel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		Item bedItem = Items.BED.pick(DyeColor.RED);
+		worker.insertOrDrop(new ItemStack(bedItem));
+		BlockState bed = Blocks.BED.pick(DyeColor.RED).defaultBlockState().setValue(BedBlock.FACING, Direction.NORTH);
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), bed));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_REPLACEABLE);
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.detail().contains("head"),
+					"failure does not name the head: " + outcomes.get(0).outcome());
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertBlockPresent(Blocks.STONE, headRel);
+			helper.assertTrue(count(worker, bedItem) == 1, "bed was consumed");
+		});
+	}
+
+	/** Lays dirt under {@code rel}, since tall plants cannot stand on the stone floor. */
+	private static void soilUnder(GameTestHelper helper, BlockPos rel) {
+		helper.setBlock(rel.below(), Blocks.DIRT);
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeSunflowerWhole(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		soilUnder(helper, rel);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.SUNFLOWER, 2));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.SUNFLOWER));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState lower = helper.getBlockState(rel);
+			BlockState upper = helper.getBlockState(rel.above());
+			helper.assertTrue(lower.is(Blocks.SUNFLOWER) && lower.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER,
+					"lower half is " + lower);
+			helper.assertTrue(upper.is(Blocks.SUNFLOWER) && upper.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER,
+					"upper half is " + upper);
+			helper.assertTrue(count(worker, Items.SUNFLOWER) == 1, "expected one sunflower used, " + count(worker, Items.SUNFLOWER) + " left");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeTallPlantUpperBlockedFailsCleanly(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		soilUnder(helper, rel);
+		helper.setBlock(rel.above(), Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.SUNFLOWER));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.SUNFLOWER));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_REPLACEABLE);
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.detail().contains("upper half"),
+					"failure does not name the upper half: " + outcomes.get(0).outcome());
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertBlockPresent(Blocks.STONE, rel.above());
+			helper.assertTrue(count(worker, Items.SUNFLOWER) == 1, "sunflower was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeTallGrassOverMatchingUpperSucceeds(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		soilUnder(helper, rel);
+		BlockState upper = Blocks.TALL_GRASS.defaultBlockState().setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER);
+		// An orphan upper half: setting the same state there again makes setBlock return false.
+		helper.setBlock(rel.above(), upper);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.TALL_GRASS, 2));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.TALL_GRASS));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState lower = helper.getBlockState(rel);
+			helper.assertTrue(lower == upper.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.LOWER), "lower half is " + lower);
+			helper.assertTrue(helper.getBlockState(rel.above()) == upper, "upper half is " + helper.getBlockState(rel.above()));
+			helper.assertTrue(count(worker, Items.TALL_GRASS) == 1, "expected one tall grass used, " + count(worker, Items.TALL_GRASS) + " left");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
 	public void cancelStopsNavigation(GameTestHelper helper) {
 		layFloor(helper);
 		BlockPos rel = new BlockPos(6, 1, 6);
@@ -571,6 +664,79 @@ public class WorkerTaskGameTest {
 							"expected one Cancelled outcome, got " + outcomes);
 				})
 				.thenExecuteAfter(40, () -> helper.assertBlockPresent(Blocks.STONE, rel))
+				.thenSucceed();
+	}
+
+	/** One crack overlay update a mine task sent. */
+	private record Crack(BlockPos pos, int stage) {
+	}
+
+	/** A mine task whose crack overlay updates are recorded into {@code cracks}, then sent as usual. */
+	private static MineTask recordingMine(BlockPos pos, List<Crack> cracks) {
+		return new MineTask(pos).withOverlay((worker, at, stage) -> {
+			cracks.add(new Crack(at, stage));
+			MineTask.CrackOverlay.LEVEL.send(worker, at, stage);
+		});
+	}
+
+	private static void assertBreakStarted(GameTestHelper helper, List<Crack> cracks, BlockPos pos) {
+		helper.assertTrue(cracks.stream().anyMatch(c -> c.pos().equals(pos) && c.stage() >= 0), "break not started yet: " + cracks);
+	}
+
+	private static void assertCrackCleared(GameTestHelper helper, List<Crack> cracks, BlockPos pos) {
+		helper.assertTrue(!cracks.isEmpty() && cracks.get(cracks.size() - 1).equals(new Crack(pos, -1)),
+				"crack overlay not cleared last: " + cracks);
+	}
+
+	@GameTest(maxTicks = 400)
+	public void mineCancelMidBreakClearsCrack(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(2, 1, 1);
+		helper.setBlock(rel, Blocks.STONE);
+		BlockPos abs = helper.absolutePos(rel);
+		List<Recorded> outcomes = new ArrayList<>();
+		List<Crack> cracks = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(recordingMine(abs, cracks));
+
+		helper.startSequence()
+				.thenWaitUntil(() -> assertBreakStarted(helper, cracks, abs))
+				.thenExecute(() -> {
+					helper.assertTrue(outcomes.isEmpty(), "mine finished before the cancel: " + outcomes);
+					worker.tasks().cancelCurrent(worker);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
+							"expected one Cancelled outcome, got " + outcomes);
+					helper.assertBlockPresent(Blocks.STONE, rel);
+					assertCrackCleared(helper, cracks, abs);
+				})
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void mineFailsWhenTargetChangedMidBreak(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(2, 1, 1);
+		helper.setBlock(rel, Blocks.STONE);
+		BlockPos abs = helper.absolutePos(rel);
+		List<Recorded> outcomes = new ArrayList<>();
+		List<Crack> cracks = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(recordingMine(abs, cracks));
+
+		helper.startSequence()
+				// A crack stage is only sent once the approach has arrived and break progress has built up.
+				.thenWaitUntil(() -> assertBreakStarted(helper, cracks, abs))
+				.thenExecute(() -> {
+					helper.assertTrue(outcomes.isEmpty(), "mine finished before the block was swapped: " + outcomes);
+					helper.setBlock(rel, Blocks.COBBLESTONE);
+				})
+				.thenWaitUntil(() -> assertFailedWith(helper, outcomes, FailureReason.TARGET_CHANGED))
+				.thenExecute(() -> {
+					helper.assertBlockPresent(Blocks.COBBLESTONE, rel);
+					assertCrackCleared(helper, cracks, abs);
+				})
 				.thenSucceed();
 	}
 
@@ -737,6 +903,30 @@ public class WorkerTaskGameTest {
 		helper.assertTrue(List.copyOf(loaded.commanders()).equals(expected),
 				"after load expected " + expected + ", got " + loaded.commanders());
 		helper.succeed();
+	}
+
+	@GameTest(maxTicks = 200)
+	public void offlineCommanderSkippedAfterReload(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		// Never in the player list, like a commander who has logged off since the order.
+		UUID offline = UUID.randomUUID();
+		worker.addCommander(offline);
+
+		WorkerEntity loaded = roundTrip(helper, worker);
+		// The copy has the same UUID, so the original must go before the copy can be added.
+		worker.discard();
+		helper.assertTrue(helper.getLevel().addFreshEntity(loaded), "could not add the reloaded worker");
+		helper.assertTrue(loaded.commanders().contains(offline), "commander lost on reload: " + loaded.commanders());
+		List<Recorded> outcomes = new ArrayList<>();
+		loaded.tasks().addListener((task, outcome) -> outcomes.add(new Recorded(task, outcome)));
+		// The commander notification listener was added in the constructor, so it runs before this one.
+		loaded.tasks().enqueue(new MoveToTask(helper.absolutePos(WORKER_START.east())));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(loaded.commanders().contains(offline), "commander dropped: " + loaded.commanders());
+		});
 	}
 
 	@GameTest

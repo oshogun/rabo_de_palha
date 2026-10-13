@@ -126,7 +126,13 @@ public final class PlaceTask implements Task<WorkerEntity> {
 			return failed(FailureReason.OBSTRUCTED, primary, "could not be set");
 		}
 		for (Part part : parts.subList(1, parts.size())) {
-			if (!level.setBlock(part.pos(), part.state(), Block.UPDATE_ALL)) {
+			// setBlock also returns false when the cell already holds the state (e.g. an orphan upper half
+			// of the same plant); the block is then whole, so that is not a failure.
+			if (!level.setBlock(part.pos(), part.state(), Block.UPDATE_ALL) && level.getBlockState(part.pos()) != part.state()) {
+				// Unreachable in vanilla: validation above guarantees a replaceable, unobstructed cell. Runs
+				// only when the level refuses the set for other reasons, such as another mod's mixin or event
+				// vetoing it, an unloaded chunk or a debug-world restriction. Kept so that half a two-part
+				// block is never left behind.
 				level.setBlock(primary.pos(), replaced, Block.UPDATE_ALL);
 				return failed(FailureReason.OBSTRUCTED, part, "could not be set");
 			}

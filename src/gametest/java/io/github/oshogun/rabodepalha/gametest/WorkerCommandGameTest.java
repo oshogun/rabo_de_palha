@@ -1,5 +1,6 @@
 package io.github.oshogun.rabodepalha.gametest;
 
+import io.github.oshogun.rabodepalha.command.WorkerCommands;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 
@@ -204,6 +206,106 @@ public class WorkerCommandGameTest {
 		WorkerEntity loaded = WorkerTaskGameTest.roundTrip(helper, worker);
 		helper.assertTrue(loaded.commanders().contains(player.getUUID()),
 				"commander lost on save/load: " + loaded.commanders());
+		helper.succeed();
+	}
+
+	@GameTest
+	public void playerSpawnRecordsCommander(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos target = helper.absolutePos(new BlockPos(3, 1, 3));
+		ServerPlayer player = (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = playerSource(helper, rec, helper.absoluteVec(new Vec3(1.5, 1, 1.5)), LEVEL_2, player);
+
+		int result = run(helper, source, "rdp spawn " + coords(target));
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<WorkerEntity> spawned = workersAt(helper, Vec3.atBottomCenterOf(target));
+		helper.assertTrue(spawned.size() == 1, "expected one worker at the target, got " + spawned);
+		helper.assertTrue(spawned.get(0).commanders().contains(player.getUUID()),
+				"player not recorded as commander: " + spawned.get(0).commanders());
+		assertFeedback(helper, rec, "Spawned");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void playerClearRecordsCommander(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		ServerPlayer player = (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = playerSource(helper, rec, worker.position(), LEVEL_2, player);
+
+		int result = run(helper, source, "rdp clear " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		helper.assertTrue(worker.commanders().contains(player.getUUID()),
+				"player not recorded as commander: " + worker.commanders());
+		assertFeedback(helper, rec, "Cleared tasks of 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void selectorMatchingSeveralWorkersQueuesEach(GameTestHelper helper) {
+		layFloor(helper);
+		// A tag only this test uses, so workers of tests running alongside are never selected.
+		String tag = "rdp_multi_select";
+		List<WorkerEntity> workers = List.of(
+				helper.spawn(ModEntities.WORKER, WORKER_START),
+				helper.spawn(ModEntities.WORKER, new BlockPos(3, 1, 2)),
+				helper.spawn(ModEntities.WORKER, new BlockPos(2, 1, 3)));
+		workers.forEach(w -> w.addTag(tag));
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, workers.get(0)),
+				"rdp goto " + coords(target) + " @e[type=rabodepalha:worker,tag=" + tag + "]");
+
+		helper.assertTrue(result == 3, "expected result 3, got " + result);
+		List<Task<WorkerEntity>> tasks = new ArrayList<>();
+		for (WorkerEntity worker : workers) {
+			List<Task<WorkerEntity>> queue = queueOf(worker);
+			helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MoveToTask m && m.pos().equals(target),
+					"expected one move_to " + target + ", got " + queue);
+			tasks.add(queue.get(0));
+		}
+		helper.assertTrue(tasks.get(0) != tasks.get(1) && tasks.get(1) != tasks.get(2) && tasks.get(0) != tasks.get(2),
+				"workers share a task instance: " + tasks);
+		assertFeedback(helper, rec, "Queued move to " + target.toShortString() + " for 3 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void partialEnqueueFailureLeavesNoWorkerChanged(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity first = helper.spawn(ModEntities.WORKER, WORKER_START);
+		WorkerEntity second = helper.spawn(ModEntities.WORKER, new BlockPos(3, 1, 2));
+		BlockPos target = helper.absolutePos(TARGET);
+		ServerPlayer player = (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = playerSource(helper, rec, first.position(), LEVEL_2, player);
+		SimpleCommandExceptionType boom = new SimpleCommandExceptionType(Component.literal("boom"));
+		int[] calls = {0};
+
+		try {
+			// The first task is created fine; creating the second fails.
+			WorkerCommands.enqueue(source, List.of(first, second), () -> {
+				if (calls[0]++ > 0) {
+					throw boom.create();
+				}
+				return new MoveToTask(target);
+			});
+			helper.fail("enqueue did not throw");
+		} catch (CommandSyntaxException e) {
+			helper.assertTrue(e.getRawMessage().getString().equals("boom"), "unexpected error: " + e.getMessage());
+		}
+
+		helper.assertTrue(calls[0] == 2, "expected 2 factory calls, got " + calls[0]);
+		helper.assertTrue(first.tasks().isIdle(), "first worker kept a task: " + queueOf(first));
+		helper.assertTrue(second.tasks().isIdle(), "second worker got a task: " + queueOf(second));
+		helper.assertTrue(first.commanders().isEmpty() && second.commanders().isEmpty(),
+				"commander recorded: " + first.commanders() + ", " + second.commanders());
+		helper.assertTrue(rec.messages().isEmpty(), "unexpected feedback: " + rec.messages());
 		helper.succeed();
 	}
 
