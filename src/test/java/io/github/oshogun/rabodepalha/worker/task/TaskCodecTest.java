@@ -19,13 +19,28 @@ import com.mojang.serialization.JsonOps;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class TaskCodecTest {
+	@BeforeAll
+	static void bootstrap() {
+		// PlaceTask's codec reads the block registry.
+		SharedConstants.tryDetectVersion();
+		Bootstrap.bootStrap();
+	}
+
 	@Test
 	void moveToRoundTrips() {
 		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
@@ -55,12 +70,36 @@ class TaskCodecTest {
 
 	@Test
 	void placeRoundTrips() {
-		Identifier dirt = Identifier.withDefaultNamespace("dirt");
+		BlockState stairs = Blocks.OAK_STAIRS.defaultBlockState()
+				.setValue(StairBlock.FACING, Direction.EAST)
+				.setValue(StairBlock.HALF, Half.TOP);
 		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
-			PlaceTask task = assertInstanceOf(PlaceTask.class, roundTrip(ops, new PlaceTask(new BlockPos(0, 5, 0), dirt)));
+			PlaceTask task = assertInstanceOf(PlaceTask.class, roundTrip(ops, new PlaceTask(new BlockPos(0, 5, 0), stairs)));
 			assertEquals(new BlockPos(0, 5, 0), task.pos());
-			assertEquals(dirt, task.blockId());
+			assertEquals(stairs, task.state());
 		}
+	}
+
+	@Test
+	void placeLegacyIdDecodes() {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", PlaceTask.TYPE_ID);
+		json.add("pos", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.addProperty("block", "minecraft:oak_stairs");
+
+		PlaceTask task = assertInstanceOf(PlaceTask.class, TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
+		assertEquals(Blocks.OAK_STAIRS.defaultBlockState(), task.state());
+	}
+
+	@Test
+	void placeLegacyUnknownIdIsAnError() {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", PlaceTask.TYPE_ID);
+		json.add("pos", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.addProperty("block", "minecraft:no_such_block");
+
+		// Dropped on load like any other undecodable entry; see undecodableEntriesAreSkippedPerElement.
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
 	}
 
 	@Test

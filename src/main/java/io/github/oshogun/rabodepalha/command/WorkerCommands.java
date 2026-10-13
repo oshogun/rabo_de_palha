@@ -37,7 +37,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -76,9 +76,9 @@ public final class WorkerCommands {
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
 										(ctx, workers) -> {
-											Block block = BlockStateArgument.getBlock(ctx, "block").getState().getBlock();
+											BlockState state = BlockStateArgument.getBlock(ctx, "block").getState();
 											BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-											return enqueue(ctx, workers, () -> new PlaceTask(pos, BuiltInRegistries.BLOCK.getKey(block)));
+											return enqueue(ctx, workers, () -> new PlaceTask(pos, state));
 										}))))
 				.then(Commands.literal("deposit")
 						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos())

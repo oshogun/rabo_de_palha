@@ -20,6 +20,7 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
@@ -31,6 +32,8 @@ import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -228,9 +231,27 @@ public class WorkerCommandGameTest {
 		helper.assertTrue(result == 1, "expected result 1, got " + result);
 		List<Task<WorkerEntity>> queue = queueOf(worker);
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof PlaceTask p && p.pos().equals(target)
-						&& p.blockId().equals(BuiltInRegistries.BLOCK.getKey(Blocks.COBBLESTONE)),
+						&& p.state() == Blocks.COBBLESTONE.defaultBlockState(),
 				"expected one place cobblestone at " + target + ", got " + queue);
 		assertFeedback(helper, rec, "Queued place minecraft:cobblestone at " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void placeCommandKeepsProperties(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp place " + coords(target) + " minecraft:oak_stairs[facing=east]");
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		BlockState expected = Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.EAST);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof PlaceTask p && p.state() == expected,
+				"expected one place " + expected + ", got " + queue);
+		assertFeedback(helper, rec, "facing=east");
 		helper.succeed();
 	}
 

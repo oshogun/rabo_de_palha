@@ -12,12 +12,15 @@ import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Task types known to the worker, keyed on {@link Task#typeId()}. Only task parameters are
- * serialized; runtime state is rebuilt when the task starts. No registries are involved, so the
- * codec works with any ops (NBT, JSON) without a bootstrapped game.
+ * serialized; runtime state is rebuilt when the task starts. The codec works with any ops (NBT, JSON),
+ * but {@link #PLACE} looks blocks up in the static block registry, so the game must be bootstrapped.
  */
 public final class TaskTypes {
 	private static final Map<String, MapCodec<? extends Task<WorkerEntity>>> TYPES = new LinkedHashMap<>();
@@ -31,10 +34,18 @@ public final class TaskTypes {
 	public static final MapCodec<MineTask> MINE = register(MineTask.TYPE_ID,
 			BlockPos.CODEC.fieldOf("pos").xmap(MineTask::new, MineTask::pos));
 
+	/**
+	 * A full block state ({@code {Name, Properties}}). Saves from before states were stored hold a bare
+	 * block id, which still decodes, as the default state. An unknown id is a decode error, which drops
+	 * only that queue entry on load.
+	 */
+	private static final Codec<BlockState> PLACE_STATE_CODEC = Codec.withAlternative(BlockState.CODEC,
+			BuiltInRegistries.BLOCK.byNameCodec().xmap(Block::defaultBlockState, BlockState::getBlock));
+
 	public static final MapCodec<PlaceTask> PLACE = register(PlaceTask.TYPE_ID,
 			RecordCodecBuilder.mapCodec(instance -> instance.group(
 					BlockPos.CODEC.fieldOf("pos").forGetter(PlaceTask::pos),
-					Identifier.CODEC.fieldOf("block").forGetter(PlaceTask::blockId)
+					PLACE_STATE_CODEC.fieldOf("block").forGetter(PlaceTask::state)
 			).apply(instance, PlaceTask::new)));
 
 	public static final MapCodec<DepositTask> DEPOSIT = register(DepositTask.TYPE_ID,

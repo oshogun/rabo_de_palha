@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.google.gson.JsonObject;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
@@ -31,6 +32,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.Container;
@@ -39,15 +41,23 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.phys.AABB;
@@ -135,7 +145,7 @@ public class WorkerTaskGameTest {
 		List<Recorded> outcomes = new ArrayList<>();
 		WorkerEntity worker = spawnWorker(helper, outcomes);
 		worker.insertOrDrop(new ItemStack(Items.DIRT));
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.DIRT));
 
 		helper.succeedWhen(() -> {
 			helper.assertTrue(outcomes.size() == 1, "place not finished yet");
@@ -157,7 +167,7 @@ public class WorkerTaskGameTest {
 		worker.insertOrDrop(new ItemStack(Items.DIRT));
 		BlockPos abs = helper.absolutePos(rel);
 		worker.tasks().enqueue(new MineTask(abs));
-		worker.tasks().enqueue(new PlaceTask(abs, BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(abs, Blocks.DIRT));
 
 		helper.succeedWhen(() -> {
 			helper.assertTrue(outcomes.size() == 2, "tasks not finished yet");
@@ -195,7 +205,7 @@ public class WorkerTaskGameTest {
 		BlockPos rel = new BlockPos(3, 1, 3);
 		List<Recorded> outcomes = new ArrayList<>();
 		WorkerEntity worker = spawnWorker(helper, outcomes);
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.DIRT));
 
 		helper.succeedWhen(() -> {
 			helper.assertTrue(outcomes.size() == 1, "place not finished yet");
@@ -317,7 +327,7 @@ public class WorkerTaskGameTest {
 		List<Recorded> outcomes = new ArrayList<>();
 		WorkerEntity worker = spawnWorker(helper, outcomes);
 		worker.insertOrDrop(new ItemStack(Items.DIRT));
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.DIRT));
 
 		helper.succeedWhen(() -> {
 			assertFailedWith(helper, outcomes, FailureReason.NOT_REPLACEABLE);
@@ -334,7 +344,7 @@ public class WorkerTaskGameTest {
 		List<Recorded> outcomes = new ArrayList<>();
 		WorkerEntity worker = spawnWorker(helper, outcomes);
 		worker.insertOrDrop(new ItemStack(Items.TORCH));
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.TORCH)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.TORCH));
 
 		helper.succeedWhen(() -> {
 			assertFailedWith(helper, outcomes, FailureReason.CANNOT_SURVIVE);
@@ -352,12 +362,150 @@ public class WorkerTaskGameTest {
 		List<Recorded> outcomes = new ArrayList<>();
 		WorkerEntity worker = spawnWorker(helper, outcomes);
 		worker.insertOrDrop(new ItemStack(Items.DIRT));
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.DIRT));
 
 		helper.succeedWhen(() -> {
 			assertFailedWith(helper, outcomes, FailureReason.OBSTRUCTED);
 			helper.assertBlockPresent(Blocks.AIR, rel);
 			helper.assertTrue(count(worker, Items.DIRT) == 1, "dirt was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeStairsFacingEast(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_STAIRS));
+		BlockState stairs = Blocks.OAK_STAIRS.defaultBlockState()
+				.setValue(StairBlock.FACING, Direction.EAST)
+				.setValue(StairBlock.HALF, Half.TOP);
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), stairs));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState placed = helper.getBlockState(rel);
+			helper.assertTrue(placed == stairs, "expected " + stairs + ", got " + placed);
+			helper.assertTrue(count(worker, Items.OAK_STAIRS) == 0, "stairs were not consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void legacyPlaceEntryDecodes(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		BlockPos abs = helper.absolutePos(rel);
+		// Queue entries saved before PlaceTask stored full states hold a bare block id.
+		JsonObject json = new JsonObject();
+		json.addProperty("type", PlaceTask.TYPE_ID);
+		json.add("pos", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, abs).getOrThrow());
+		json.addProperty("block", "minecraft:oak_stairs");
+		CompoundTag tag = new CompoundTag();
+		tag.putString("type", PlaceTask.TYPE_ID);
+		tag.put("pos", BlockPos.CODEC.encodeStart(NbtOps.INSTANCE, abs).getOrThrow());
+		tag.putString("block", "minecraft:oak_stairs");
+
+		Task<WorkerEntity> fromJson = TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
+		Task<WorkerEntity> fromNbt = TaskTypes.CODEC.parse(NbtOps.INSTANCE, tag).getOrThrow();
+		BlockState expected = Blocks.OAK_STAIRS.defaultBlockState();
+		for (Task<WorkerEntity> task : List.of(fromJson, fromNbt)) {
+			helper.assertTrue(task instanceof PlaceTask p && p.pos().equals(abs) && p.state() == expected,
+					"legacy entry decoded to " + task.describe());
+		}
+
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_STAIRS));
+		worker.tasks().enqueue(fromNbt);
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState placed = helper.getBlockState(rel);
+			helper.assertTrue(placed == expected, "expected " + expected + ", got " + placed);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeDoorWhole(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_DOOR));
+		BlockState door = Blocks.OAK_DOOR.defaultBlockState()
+				.setValue(DoorBlock.FACING, Direction.EAST)
+				.setValue(DoorBlock.HINGE, DoorHingeSide.RIGHT);
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), door));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState lower = helper.getBlockState(rel);
+			BlockState upper = helper.getBlockState(rel.above());
+			helper.assertTrue(lower == door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER), "lower half is " + lower);
+			helper.assertTrue(upper == door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER), "upper half is " + upper);
+			helper.assertTrue(count(worker, Items.OAK_DOOR) == 0, "door was not consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeDoorUpperBlockedFailsCleanly(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		helper.setBlock(rel.above(), Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_DOOR));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(rel), Blocks.OAK_DOOR));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_REPLACEABLE);
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.detail().contains("upper half"),
+					"failure does not name the upper half: " + outcomes.get(0).outcome());
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertBlockPresent(Blocks.STONE, rel.above());
+			helper.assertTrue(count(worker, Items.OAK_DOOR) == 1, "door was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeDoorUpperHalfRequestNormalizes(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_DOOR));
+		BlockState upperRequest = Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER);
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), upperRequest));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState lower = helper.getBlockState(rel);
+			BlockState upper = helper.getBlockState(rel.above());
+			helper.assertTrue(lower == upperRequest.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER), "lower half is " + lower);
+			helper.assertTrue(upper == upperRequest, "upper half is " + upper);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void placeBedWhole(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(5, 1, 5);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		Item bedItem = Items.BED.pick(DyeColor.RED);
+		worker.insertOrDrop(new ItemStack(bedItem));
+		BlockState bed = Blocks.BED.pick(DyeColor.RED).defaultBlockState().setValue(BedBlock.FACING, Direction.NORTH);
+		BlockPos foot = helper.absolutePos(rel);
+		worker.tasks().enqueue(new PlaceTask(foot, bed));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			BlockState footState = helper.getLevel().getBlockState(foot);
+			BlockState headState = helper.getLevel().getBlockState(foot.north());
+			helper.assertTrue(footState == bed.setValue(BedBlock.PART, BedPart.FOOT), "foot is " + footState);
+			helper.assertTrue(headState == bed.setValue(BedBlock.PART, BedPart.HEAD), "head is " + headState);
+			helper.assertTrue(count(worker, bedItem) == 0, "bed was not consumed");
 		});
 	}
 
@@ -422,7 +570,7 @@ public class WorkerTaskGameTest {
 		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
 		worker.insertOrDrop(new ItemStack(Items.DIRT));
 		worker.tasks().enqueue(new MineTask(helper.absolutePos(mineRel)));
-		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(placeRel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(helper.absolutePos(placeRel), Blocks.DIRT));
 
 		helper.startSequence()
 				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
@@ -526,7 +674,7 @@ public class WorkerTaskGameTest {
 		worker.insertOrDrop(new ItemStack(Items.DIRT, 5));
 		BlockPos abs = helper.absolutePos(new BlockPos(5, 1, 5));
 		worker.tasks().enqueue(new MineTask(abs));
-		worker.tasks().enqueue(new PlaceTask(abs, BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+		worker.tasks().enqueue(PlaceTask.of(abs, Blocks.DIRT));
 		worker.tasks().enqueue(new MoveToTask(abs.above(), 321));
 		List<UUID> commanders = List.of(new UUID(0L, 1L), new UUID(0L, 2L), new UUID(0L, 3L));
 		commanders.forEach(worker::addCommander);
