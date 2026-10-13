@@ -12,6 +12,8 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
+
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -28,6 +30,7 @@ import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
@@ -51,6 +54,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	 * {@link #MAX_COMMANDERS}, oldest first and most recent last.
 	 */
 	private final Set<UUID> commanders = new LinkedHashSet<>();
+	/** Chunk of the held ticket, or null; not saved, the first tick after loading re-acquires it. */
+	@Nullable
+	private ChunkPos ticketChunk;
+	private boolean chunkTicketRefused;
+	private int ticksSinceTicketRefresh;
 
 	public WorkerEntity(EntityType<? extends WorkerEntity> type, Level level) {
 		super(type, level);
@@ -132,12 +140,101 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	}
 
 	@Override
+	public void tick() {
+		super.tick();
+		// Called from tick(), not customServerAiStep, so it also runs for NoAI workers.
+		if (level() instanceof ServerLevel serverLevel && !isRemoved()) {
+			updateChunkTicket(serverLevel);
+		}
+	}
+
+	/**
+	 * Holds a {@link WorkerChunkTickets} ticket on the worker's current chunk while it has a current or
+	 * queued task, moving it when the worker crosses into another chunk and refreshing it before it
+	 * times out. Releases it once the worker is idle or dying.
+	 */
+	private void updateChunkTicket(ServerLevel level) {
+		if (tasks.isIdle() || !isAlive()) {
+			releaseChunkTicket(level);
+			return;
+		}
+		UUID id = getUUID();
+		if (!WorkerChunkTickets.BUDGET.tryAcquire(id)) {
+			chunkTicketRefused = true;
+			return;
+		}
+		chunkTicketRefused = false;
+		ChunkPos chunk = chunkPosition();
+		if (!chunk.equals(ticketChunk)) {
+			if (ticketChunk != null) {
+				WorkerChunkTickets.release(level, ticketChunk, id);
+			}
+			WorkerChunkTickets.acquire(level, chunk, id);
+			ticketChunk = chunk;
+			ticksSinceTicketRefresh = 0;
+		} else if (++ticksSinceTicketRefresh >= WorkerChunkTickets.REFRESH_INTERVAL) {
+			WorkerChunkTickets.refresh(level, chunk);
+			ticksSinceTicketRefresh = 0;
+		}
+	}
+
+	private void releaseChunkTicket(ServerLevel level) {
+		UUID id = getUUID();
+		if (ticketChunk != null) {
+			WorkerChunkTickets.release(level, ticketChunk, id);
+			ticketChunk = null;
+		}
+		WorkerChunkTickets.BUDGET.release(id);
+		chunkTicketRefused = false;
+	}
+
+	/** True if this worker currently holds a ticket keeping its chunks loaded. */
+	public boolean holdsChunkTicket() {
+		return ticketChunk != null;
+	}
+
+	/** True if this worker is busy but the server-wide ticket budget is full. */
+	public boolean chunkTicketRefused() {
+		return chunkTicketRefused;
+	}
+
+	/** The chunk this worker's ticket is centred on, or null if it holds none. */
+	@Nullable
+	public ChunkPos ticketChunk() {
+		return ticketChunk;
+	}
+
+	@Override
 	public void remove(RemovalReason reason) {
-		if (reason.shouldDestroy() && !level().isClientSide()) {
+		if (!level().isClientSide() && reason.shouldDestroy()) {
 			// Lets the current task clean up (e.g. clear the crack overlay).
 			tasks.clear(this);
 		}
 		super.remove(reason);
+	}
+
+	/**
+	 * Releases the chunk ticket. Done here rather than in {@link #remove} because vanilla unloads
+	 * entities and moves them between dimensions with {@code setRemoved}, which skips {@code remove}
+	 * but always calls this.
+	 */
+	@Override
+	public void onRemoval(RemovalReason reason) {
+		super.onRemoval(reason);
+		if (level() instanceof ServerLevel serverLevel) {
+			if (reason.shouldDestroy() || reason == RemovalReason.CHANGED_DIMENSION) {
+				releaseChunkTicket(serverLevel);
+			} else {
+				// Unloaded: keep the persisted ticket so the busy worker comes back after a restart;
+				// drop only the in-memory state, which its next first tick re-registers.
+				if (ticketChunk != null) {
+					WorkerChunkTickets.forget(serverLevel, ticketChunk, getUUID());
+					ticketChunk = null;
+				}
+				WorkerChunkTickets.BUDGET.release(getUUID());
+				chunkTicketRefused = false;
+			}
+		}
 	}
 
 	@Override

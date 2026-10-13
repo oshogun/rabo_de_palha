@@ -45,6 +45,12 @@ chest. Blueprints are limited to 4096 entries.
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.
 
+A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
+7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The
+ticket persists across restarts and goes away when the worker goes idle, dies or is removed. At
+most 32 workers (1568 chunks) hold chunks at once; others wait until a slot frees up. `/rdp list`
+shows `chunks loaded`, `chunks not loaded (cap reached)` or `chunks not loaded` for each worker.
+
 ## Prerequisites
 
 - JDK 25 or newer.

@@ -78,11 +78,11 @@ public class WorkerCommandGameTest {
 	}
 
 	/** A level-2 source standing on {@code worker}, so it is the nearest worker. */
-	private static CommandSourceStack sourceAt(GameTestHelper helper, RecordingCommandSource rec, WorkerEntity worker) {
+	static CommandSourceStack sourceAt(GameTestHelper helper, RecordingCommandSource rec, WorkerEntity worker) {
 		return source(helper, rec, worker.position(), LEVEL_2);
 	}
 
-	private static int run(GameTestHelper helper, CommandSourceStack source, String command) {
+	static int run(GameTestHelper helper, CommandSourceStack source, String command) {
 		try {
 			return helper.getLevel().getServer().getCommands().getDispatcher().execute(command, source);
 		} catch (CommandSyntaxException e) {
@@ -102,7 +102,7 @@ public class WorkerCommandGameTest {
 		return "";
 	}
 
-	private static String coords(BlockPos pos) {
+	static String coords(BlockPos pos) {
 		return pos.getX() + " " + pos.getY() + " " + pos.getZ();
 	}
 
@@ -114,7 +114,7 @@ public class WorkerCommandGameTest {
 		return worker.tasks().snapshot();
 	}
 
-	private static void assertFeedback(GameTestHelper helper, RecordingCommandSource rec, String expected) {
+	static void assertFeedback(GameTestHelper helper, RecordingCommandSource rec, String expected) {
 		helper.assertTrue(rec.anyContains(expected), "feedback lacks \"" + expected + "\": " + rec.messages());
 	}
 
@@ -160,7 +160,7 @@ public class WorkerCommandGameTest {
 
 		helper.assertTrue(result >= 1, "expected at least 1 worker, got " + result);
 		assertFeedback(helper, rec, "worker(s):");
-		assertFeedback(helper, rec, " " + worker.getId() + " @ " + coords(worker.blockPosition()) + " - idle, 0 queued");
+		assertFeedback(helper, rec, " " + worker.getId() + " @ " + coords(worker.blockPosition()) + " - idle, 0 queued, chunks not loaded");
 		helper.succeed();
 	}
 

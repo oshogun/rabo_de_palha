@@ -2,6 +2,8 @@ package io.github.oshogun.rabodepalha;
 
 import io.github.oshogun.rabodepalha.command.WorkerCommands;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
+import io.github.oshogun.rabodepalha.registry.ModTicketTypes;
+import io.github.oshogun.rabodepalha.worker.WorkerChunkTickets;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 
 import net.fabricmc.api.ModInitializer;
@@ -18,7 +20,9 @@ public class RaboDePalha implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		ModTicketTypes.init();
 		ModEntities.init();
+		WorkerChunkTickets.init();
 		TaskTypes.bootstrap();
 		WorkerCommands.register();
 		LOGGER.info("Rabo-de-palha initialized");

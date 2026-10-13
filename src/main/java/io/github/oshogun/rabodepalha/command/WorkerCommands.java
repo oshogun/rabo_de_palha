@@ -228,10 +228,18 @@ public final class WorkerCommands {
 		for (WorkerEntity worker : workers) {
 			text.append("\n  ").append(label(worker)).append(" - ")
 					.append(worker.tasks().current().map(Task::describe).orElse("idle"))
-					.append(", ").append(worker.tasks().pending().size()).append(" queued");
+					.append(", ").append(worker.tasks().pending().size()).append(" queued")
+					.append(chunkStatus(worker));
 		}
 		source.sendSuccess(() -> Component.literal(text.toString()), false);
 		return workers.size();
+	}
+
+	private static String chunkStatus(WorkerEntity worker) {
+		if (worker.holdsChunkTicket()) {
+			return ", chunks loaded";
+		}
+		return worker.chunkTicketRefused() ? ", chunks not loaded (cap reached)" : ", chunks not loaded";
 	}
 
 	private static int enqueue(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, TaskFactory factory)

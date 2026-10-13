@@ -85,7 +85,7 @@ public class WorkerTaskGameTest {
 	private record Recorded(Task<WorkerEntity> task, TaskOutcome outcome) {
 	}
 
-	private static void layFloor(GameTestHelper helper) {
+	static void layFloor(GameTestHelper helper) {
 		for (int x = 0; x < 8; x++) {
 			for (int z = 0; z < 8; z++) {
 				helper.setBlock(new BlockPos(x, 0, z), Blocks.STONE);
