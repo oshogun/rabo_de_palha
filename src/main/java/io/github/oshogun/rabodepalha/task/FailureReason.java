@@ -17,6 +17,11 @@ public enum FailureReason {
 	NOT_A_CONTAINER,
 	/** The container could not take everything the worker tried to put in. */
 	CONTAINER_FULL,
+	/**
+	 * The container's slot rules accept none of the items (a shulker box into a shulker box, dirt into a
+	 * brewing stand), whether or not it has free space.
+	 */
+	ITEM_REFUSED,
 	/** The container holds fewer of an item than requested; {@link #MISSING_ITEM} is for the worker's inventory. */
 	ITEM_NOT_FOUND,
 	/** The worker's inventory has no room for the items the task would take. */

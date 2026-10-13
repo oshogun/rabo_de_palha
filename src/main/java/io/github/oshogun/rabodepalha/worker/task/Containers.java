@@ -8,11 +8,12 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Item movement into and out of vanilla containers, as a player with the container open would do it:
- * slot rules ({@link Container#canPlaceItem}) and stack limits apply, face-based
+ * slot rules ({@link Container#canPlaceItem}, and no shulker box inside a shulker box) and stack limits apply, face-based
  * {@code WorldlyContainer} rules do not.
  */
 final class Containers {
@@ -49,7 +50,7 @@ final class Containers {
 			boolean emptySlots = pass == 1;
 			for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
 				ItemStack slot = container.getItem(i);
-				if (slot.isEmpty() != emptySlots || !container.canPlaceItem(i, stack)) {
+				if (slot.isEmpty() != emptySlots || !canPlace(container, i, stack)) {
 					continue;
 				}
 				if (!emptySlots && !ItemStack.isSameItemSameComponents(slot, stack)) {
@@ -73,6 +74,30 @@ final class Containers {
 			container.setChanged();
 		}
 		return moved;
+	}
+
+	/**
+	 * Whether the slot rules of {@code container} allow {@code stack} in at least one slot, whether or not
+	 * that slot has room. Separates "not accepted here" from "full".
+	 */
+	static boolean accepts(Container container, ItemStack stack) {
+		for (int i = 0; i < container.getContainerSize(); i++) {
+			if (canPlace(container, i, stack)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * {@link Container#canPlaceItem}, plus the shulker box rule that vanilla only enforces in its menu
+	 * slot and through faces: no shulker box (or other item that cannot nest) inside a shulker box.
+	 */
+	private static boolean canPlace(Container container, int slot, ItemStack stack) {
+		if (container instanceof ShulkerBoxBlockEntity && !stack.getItem().canFitInsideContainerItems()) {
+			return false;
+		}
+		return container.canPlaceItem(slot, stack);
 	}
 
 	static int count(Container container, Item item) {

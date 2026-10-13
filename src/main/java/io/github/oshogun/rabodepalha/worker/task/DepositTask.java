@@ -22,7 +22,9 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Walks into reach of the container at {@link #pos()} and puts every stack of {@link #itemId()} into
- * it, or the whole inventory if no item is given. Whatever does not fit stays with the worker.
+ * it, or the whole inventory if no item is given. Whatever does not fit stays with the worker:
+ * {@link FailureReason#CONTAINER_FULL} if there was no room, {@link FailureReason#ITEM_REFUSED} if the
+ * container's slot rules accept none of the leftover items.
  */
 public final class DepositTask implements Task<WorkerEntity> {
 	public static final String TYPE_ID = "deposit";
@@ -93,13 +95,21 @@ public final class DepositTask implements Task<WorkerEntity> {
 		SimpleContainer inventory = worker.getInventory();
 		int deposited = 0;
 		int left = 0;
+		int refused = 0;
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
 			ItemStack stack = inventory.getItem(i);
 			if (stack.isEmpty() || (item != null && !stack.is(item))) {
 				continue;
 			}
 			deposited += Containers.insert(container, stack);
-			left += stack.getCount();
+			if (stack.isEmpty()) {
+				continue;
+			}
+			if (Containers.accepts(container, stack)) {
+				left += stack.getCount();
+			} else {
+				refused += stack.getCount();
+			}
 		}
 		if (deposited > 0) {
 			inventory.setChanged();
@@ -107,7 +117,7 @@ public final class DepositTask implements Task<WorkerEntity> {
 			worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
 		}
 
-		if (deposited == 0 && left == 0) {
+		if (deposited == 0 && left == 0 && refused == 0) {
 			// The named item can be lost while walking; only deposit-all treats an empty inventory as done.
 			if (item != null) {
 				return TaskOutcome.failed(FailureReason.MISSING_ITEM, "no " + itemId.get() + " in inventory");
@@ -115,7 +125,11 @@ public final class DepositTask implements Task<WorkerEntity> {
 			return TaskOutcome.succeeded("nothing to deposit");
 		}
 		if (left > 0) {
-			return TaskOutcome.failed(FailureReason.CONTAINER_FULL, "deposited " + deposited + ", " + left + " left");
+			return TaskOutcome.failed(FailureReason.CONTAINER_FULL, "deposited " + deposited + ", " + left + " left"
+					+ (refused > 0 ? ", " + refused + " not accepted" : ""));
+		}
+		if (refused > 0) {
+			return TaskOutcome.failed(FailureReason.ITEM_REFUSED, "deposited " + deposited + ", " + refused + " not accepted");
 		}
 		return TaskOutcome.succeeded("deposited " + deposited + " items");
 	}
