@@ -193,6 +193,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		return inventory.hasAnyMatching(stack -> stack.is(item));
 	}
 
+	public int countItem(Item item) {
+		return inventory.countItem(item);
+	}
+
 	/** Removes one of {@code item} from the inventory; returns false if there was none. */
 	public boolean consumeOne(Item item) {
 		for (int i = 0; i < inventory.getContainerSize(); i++) {

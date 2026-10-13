@@ -3,12 +3,15 @@ package io.github.oshogun.rabodepalha.command;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -29,6 +32,7 @@ import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -76,6 +80,18 @@ public final class WorkerCommands {
 											BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
 											return enqueue(ctx, workers, () -> new PlaceTask(pos, BuiltInRegistries.BLOCK.getKey(block)));
 										}))))
+				.then(Commands.literal("deposit")
+						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos())
+										.then(withWorkers(Commands.argument("item", ItemArgument.item(buildContext)),
+												(ctx, workers) -> deposit(ctx, workers, Optional.of(itemId(ctx))))),
+								(ctx, workers) -> deposit(ctx, workers, Optional.empty()))))
+				// As for "give" below, "count" goes before "workers".
+				.then(Commands.literal("withdraw")
+						.then(Commands.argument("pos", BlockPosArgument.blockPos())
+								.then(withWorkers(Commands.argument("item", ItemArgument.item(buildContext))
+												.then(withWorkers(Commands.argument("count", IntegerArgumentType.integer(1)),
+														(ctx, workers) -> withdraw(ctx, workers, IntegerArgumentType.getInteger(ctx, "count")))),
+										(ctx, workers) -> withdraw(ctx, workers, 1)))))
 				// "count" must be added before withWorkers adds "workers": a bare number also parses as a
 				// player name, and brigadier prefers the first-registered child when both consume the token.
 				.then(Commands.literal("give")
@@ -190,6 +206,23 @@ public final class WorkerCommands {
 		String message = "Queued " + described + " for " + workers.size() + " worker(s)";
 		source.sendSuccess(() -> Component.literal(message), false);
 		return workers.size();
+	}
+
+	private static Identifier itemId(CommandContext<CommandSourceStack> ctx) {
+		return BuiltInRegistries.ITEM.getKey(ItemArgument.getItem(ctx, "item").item().value());
+	}
+
+	private static int deposit(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, Optional<Identifier> item)
+			throws CommandSyntaxException {
+		BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+		return enqueue(ctx, workers, () -> new DepositTask(pos, item));
+	}
+
+	private static int withdraw(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, int count)
+			throws CommandSyntaxException {
+		BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+		Identifier item = itemId(ctx);
+		return enqueue(ctx, workers, () -> new WithdrawTask(pos, item, count));
 	}
 
 	private static int give(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, int count)

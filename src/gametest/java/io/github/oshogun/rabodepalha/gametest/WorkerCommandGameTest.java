@@ -3,12 +3,15 @@ package io.github.oshogun.rabodepalha.gametest;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -232,6 +235,126 @@ public class WorkerCommandGameTest {
 	}
 
 	@GameTest
+	public void depositQueuesDepositTask(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp deposit " + coords(target));
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DepositTask d && d.pos().equals(target)
+						&& d.itemId().isEmpty(),
+				"expected one deposit all into " + target + ", got " + queue);
+		assertFeedback(helper, rec, "Queued deposit all into " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void depositItemWithSelector(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		// Away from the worker: only the selector can pick it.
+		CommandSourceStack source = source(helper, rec, helper.absoluteVec(new Vec3(6.5, 1, 6.5)), LEVEL_2);
+
+		int result = run(helper, source, "rdp deposit " + coords(target) + " minecraft:dirt " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DepositTask d && d.pos().equals(target)
+						&& d.itemId().equals(Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))),
+				"expected one deposit dirt into " + target + ", got " + queue);
+		assertFeedback(helper, rec, "Queued deposit minecraft:dirt into " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void depositWithSelectorOnly(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = source(helper, rec, helper.absoluteVec(new Vec3(6.5, 1, 6.5)), LEVEL_2);
+
+		run(helper, source, "rdp deposit " + coords(target) + " " + worker.getStringUUID());
+
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DepositTask d && d.itemId().isEmpty(),
+				"expected one deposit all, got " + queue);
+		helper.succeed();
+	}
+
+	@GameTest
+	public void withdrawQueuesWithdrawTask(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp withdraw " + coords(target) + " minecraft:cobblestone");
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof WithdrawTask w && w.pos().equals(target)
+						&& w.itemId().equals(BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE)) && w.count() == 1,
+				"expected one withdraw 1 cobblestone from " + target + ", got " + queue);
+		assertFeedback(helper, rec, "Queued withdraw 1 minecraft:cobblestone from " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void withdrawWithCountAndSelector(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		// Away from the worker: only the selector can pick it.
+		CommandSourceStack source = source(helper, rec, helper.absoluteVec(new Vec3(6.5, 1, 6.5)), LEVEL_2);
+
+		int result = run(helper, source, "rdp withdraw " + coords(target) + " minecraft:cobblestone 12 " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof WithdrawTask w && w.count() == 12,
+				"expected one withdraw of 12, got " + queue);
+		assertFeedback(helper, rec, "Queued withdraw 12 minecraft:cobblestone from " + target.toShortString());
+		helper.succeed();
+	}
+
+	@GameTest
+	public void withdrawCountWithoutSelector(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		// "7" also parses as a player name; it must be taken as the count.
+		run(helper, sourceAt(helper, rec, worker), "rdp withdraw " + coords(target) + " minecraft:cobblestone 7");
+
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof WithdrawTask w && w.count() == 7,
+				"expected one withdraw of 7, got " + queue);
+		helper.succeed();
+	}
+
+	@GameTest
+	public void withdrawCountZeroRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		expectFailure(helper, sourceAt(helper, rec, worker), "rdp withdraw " + coords(target) + " minecraft:cobblestone 0");
+
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
+		helper.succeed();
+	}
+
+	@GameTest
 	public void giveWithCountAndSelector(GameTestHelper helper) {
 		layFloor(helper);
 		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
@@ -420,6 +543,8 @@ public class WorkerCommandGameTest {
 				"rdp mine " + coords(target),
 				"rdp place " + coords(target) + " minecraft:cobblestone",
 				"rdp give minecraft:dirt 5 " + uuid,
+				"rdp deposit " + coords(target) + " minecraft:dirt " + uuid,
+				"rdp withdraw " + coords(target) + " minecraft:dirt 5 " + uuid,
 				"rdp queue",
 				"rdp clear " + uuid);
 

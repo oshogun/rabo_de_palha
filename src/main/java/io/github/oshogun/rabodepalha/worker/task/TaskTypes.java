@@ -37,6 +37,19 @@ public final class TaskTypes {
 					Identifier.CODEC.fieldOf("block").forGetter(PlaceTask::blockId)
 			).apply(instance, PlaceTask::new)));
 
+	public static final MapCodec<DepositTask> DEPOSIT = register(DepositTask.TYPE_ID,
+			RecordCodecBuilder.mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("pos").forGetter(DepositTask::pos),
+					Identifier.CODEC.optionalFieldOf("item").forGetter(DepositTask::itemId)
+			).apply(instance, DepositTask::new)));
+
+	public static final MapCodec<WithdrawTask> WITHDRAW = register(WithdrawTask.TYPE_ID,
+			RecordCodecBuilder.mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("pos").forGetter(WithdrawTask::pos),
+					Identifier.CODEC.fieldOf("item").forGetter(WithdrawTask::itemId),
+					Codec.intRange(1, Integer.MAX_VALUE).optionalFieldOf("count", 1).forGetter(WithdrawTask::count)
+			).apply(instance, WithdrawTask::new)));
+
 	/** Dispatches on a {@code type} field; an unknown type decodes to a {@link DataResult} error. */
 	public static final Codec<Task<WorkerEntity>> CODEC = Codec.STRING.partialDispatch("type",
 			task -> DataResult.success(task.typeId()), TaskTypes::codecFor);

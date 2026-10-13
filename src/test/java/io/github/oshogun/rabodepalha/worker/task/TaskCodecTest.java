@@ -1,11 +1,13 @@
 package io.github.oshogun.rabodepalha.worker.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -59,6 +61,65 @@ class TaskCodecTest {
 			assertEquals(new BlockPos(0, 5, 0), task.pos());
 			assertEquals(dirt, task.blockId());
 		}
+	}
+
+	@Test
+	void depositWithItemRoundTrips() {
+		Identifier dirt = Identifier.withDefaultNamespace("dirt");
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			DepositTask task = assertInstanceOf(DepositTask.class,
+					roundTrip(ops, new DepositTask(new BlockPos(2, 3, 4), Optional.of(dirt))));
+			assertEquals(new BlockPos(2, 3, 4), task.pos());
+			assertEquals(Optional.of(dirt), task.itemId());
+		}
+	}
+
+	@Test
+	void depositWithoutItemRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			DepositTask task = assertInstanceOf(DepositTask.class,
+					roundTrip(ops, new DepositTask(new BlockPos(-1, 0, 1), Optional.empty())));
+			assertEquals(new BlockPos(-1, 0, 1), task.pos());
+			assertEquals(Optional.empty(), task.itemId());
+		}
+		JsonObject json = encode(new DepositTask(BlockPos.ZERO, Optional.empty())).getAsJsonObject();
+		assertFalse(json.has("item"), "absent item was written: " + json);
+	}
+
+	@Test
+	void withdrawRoundTrips() {
+		Identifier cobblestone = Identifier.withDefaultNamespace("cobblestone");
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			WithdrawTask task = assertInstanceOf(WithdrawTask.class,
+					roundTrip(ops, new WithdrawTask(new BlockPos(7, 8, 9), cobblestone, 32)));
+			assertEquals(new BlockPos(7, 8, 9), task.pos());
+			assertEquals(cobblestone, task.itemId());
+			assertEquals(32, task.count());
+		}
+	}
+
+	@Test
+	void withdrawCountDefaultsToOne() {
+		JsonObject json = withdrawJson();
+
+		WithdrawTask task = assertInstanceOf(WithdrawTask.class, TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
+		assertEquals(1, task.count());
+	}
+
+	@Test
+	void withdrawCountZeroIsAnError() {
+		JsonObject json = withdrawJson();
+		json.addProperty("count", 0);
+
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
+	private static JsonObject withdrawJson() {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", WithdrawTask.TYPE_ID);
+		json.add("pos", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.addProperty("item", "minecraft:dirt");
+		return json;
 	}
 
 	@Test

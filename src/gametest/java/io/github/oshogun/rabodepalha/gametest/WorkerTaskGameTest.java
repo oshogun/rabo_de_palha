@@ -5,14 +5,17 @@ import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
+import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -23,10 +26,14 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
@@ -36,6 +43,11 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.phys.AABB;
@@ -585,6 +597,326 @@ public class WorkerTaskGameTest {
 
 		helper.assertTrue(loaded.tasks().snapshot().size() == 1, "expected 1 restored task, got " + loaded.tasks().snapshot());
 		helper.assertTrue(loaded.commanders().isEmpty(), "expected no commanders, got " + loaded.commanders());
+		helper.succeed();
+	}
+
+	/** Far enough from {@link #WORKER_START} that the worker has to walk to reach it. */
+	private static final BlockPos CONTAINER = new BlockPos(6, 1, 6);
+
+	private static ChestBlockEntity chestAt(GameTestHelper helper, BlockPos rel) {
+		return helper.getBlockEntity(rel, ChestBlockEntity.class);
+	}
+
+	private static ChestBlockEntity placeChest(GameTestHelper helper, BlockPos rel) {
+		helper.setBlock(rel, Blocks.CHEST);
+		return chestAt(helper, rel);
+	}
+
+	private static void fill(Container container, ItemStack stack) {
+		for (int i = 0; i < container.getContainerSize(); i++) {
+			container.setItem(i, stack.copy());
+		}
+	}
+
+	private static void assertSucceeded(GameTestHelper helper, List<Recorded> outcomes) {
+		helper.assertTrue(outcomes.size() == 1, "task not finished yet");
+		helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Succeeded,
+				"task did not succeed: " + outcomes.get(0).outcome());
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositAllIntoChest(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 10));
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 3));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 10, "expected 10 cobblestone in the chest");
+			helper.assertTrue(chest.countItem(Items.DIRT) == 3, "expected 3 dirt in the chest");
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker still holds items");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositOnlyGivenItem(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 10));
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 3));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(chest.countItem(Items.DIRT) == 3, "expected 3 dirt in the chest");
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 0, "cobblestone was deposited");
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 10, "worker lost cobblestone");
+			helper.assertTrue(count(worker, Items.DIRT) == 0, "worker still holds dirt");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositIntoDoubleChest(GameTestHelper helper) {
+		layFloor(helper);
+		// Facing north, a LEFT half connects east (clockwise) to the RIGHT half.
+		BlockPos leftRel = new BlockPos(5, 1, 6);
+		BlockPos rightRel = new BlockPos(6, 1, 6);
+		BlockState chest = Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, Direction.NORTH);
+		helper.setBlock(leftRel, chest.setValue(ChestBlock.TYPE, ChestType.LEFT));
+		helper.setBlock(rightRel, chest.setValue(ChestBlock.TYPE, ChestType.RIGHT));
+		ChestBlockEntity left = chestAt(helper, leftRel);
+		ChestBlockEntity right = chestAt(helper, rightRel);
+		fill(left, new ItemStack(Items.COBBLESTONE, 64));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 10));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(leftRel), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(right.countItem(Items.COBBLESTONE) == 10,
+					"expected 10 cobblestone in the right half, got " + right.countItem(Items.COBBLESTONE));
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker still holds items");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositIntoBarrel(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(CONTAINER, Blocks.BARREL);
+		BarrelBlockEntity barrel = helper.getBlockEntity(CONTAINER, BarrelBlockEntity.class);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 7));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(barrel.countItem(Items.DIRT) == 7, "expected 7 dirt in the barrel");
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker still holds items");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositIntoFullChestIsContainerFull(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		fill(chest, new ItemStack(Items.COBBLESTONE, 64));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 5));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.CONTAINER_FULL);
+			helper.assertTrue(count(worker, Items.DIRT) == 5, "worker lost dirt");
+			helper.assertTrue(chest.countItem(Items.DIRT) == 0, "dirt went into a full chest");
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void depositMissingItemIsMissingItem(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 4));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.MISSING_ITEM);
+			helper.assertTrue(chest.isEmpty(), "chest is not empty");
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 4, "worker lost cobblestone");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositItemLostWhileWalkingIsMissingItem(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 3));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))));
+
+		helper.startSequence()
+				// start() checks the inventory on the tick the task becomes current; take the dirt after that.
+				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent(), "deposit not started yet"))
+				.thenExecute(() -> {
+					helper.assertTrue(outcomes.isEmpty(), "deposit finished before the dirt was taken: " + outcomes);
+					worker.getInventory().removeAllItems();
+				})
+				.thenWaitUntil(() -> assertFailedWith(helper, outcomes, FailureReason.MISSING_ITEM))
+				.thenExecute(() -> helper.assertTrue(chest.isEmpty(), "chest is not empty"))
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositAllWithEmptyInventorySucceeds(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(chest.isEmpty(), "chest is not empty");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositIntoNonContainerIsNotAContainer(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(CONTAINER, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 5));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_A_CONTAINER);
+			helper.assertTrue(count(worker, Items.DIRT) == 5, "worker lost dirt");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawFromChest(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		chest.setItem(3, new ItemStack(Items.COBBLESTONE, 10));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 5));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 5, "expected 5 cobblestone left in the chest");
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 5, "expected 5 cobblestone on the worker");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawMissingItemIsItemNotFound(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		chest.setItem(0, new ItemStack(Items.COBBLESTONE, 10));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.DIRT), 1));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.ITEM_NOT_FOUND);
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker took something");
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 10, "chest lost cobblestone");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawMoreThanAvailableIsItemNotFound(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		chest.setItem(0, new ItemStack(Items.COBBLESTONE, 2));
+		chest.setItem(5, new ItemStack(Items.COBBLESTONE, 1));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 5));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.ITEM_NOT_FOUND);
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.detail().contains("took 3 of 5"),
+					"detail does not say what was taken: " + outcomes.get(0).outcome());
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 3, "worker did not keep the partial amount");
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 0, "chest still holds cobblestone");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawFromNonContainerIsNotAContainer(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(CONTAINER, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.STONE), 1));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_A_CONTAINER);
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker took something");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawIntoFullWorkerInventoryIsInventoryFull(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		chest.setItem(0, new ItemStack(Items.COBBLESTONE, 20));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		// Room for exactly 4 cobblestone.
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 60));
+		for (int i = 1; i < WorkerEntity.INVENTORY_SIZE; i++) {
+			worker.insertOrDrop(new ItemStack(Items.DIRT, 64));
+		}
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 10));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.INVENTORY_FULL);
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 64, "expected 64 cobblestone on the worker");
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 16, "expected 16 cobblestone left in the chest");
+			helper.assertTrue(itemsNear(helper, worker.position(), 3.0, Items.COBBLESTONE) == 0, "cobblestone was dropped");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void withdrawRenamedItemThatDoesNotFitStaysInChest(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		ItemStack renamed = new ItemStack(Items.COBBLESTONE, 10);
+		renamed.set(DataComponents.CUSTOM_NAME, Component.literal("Special"));
+		chest.setItem(0, renamed.copy());
+		chest.setItem(1, new ItemStack(Items.COBBLESTONE, 5));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		// No empty slot: only plain cobblestone fits, in the one partial stack.
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 32));
+		for (int i = 1; i < WorkerEntity.INVENTORY_SIZE; i++) {
+			worker.insertOrDrop(new ItemStack(Items.DIRT, 64));
+		}
+		worker.tasks().enqueue(new WithdrawTask(helper.absolutePos(CONTAINER), BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 10));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.INVENTORY_FULL);
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.detail().contains("took 5 of 10"),
+					"detail does not count what was taken: " + outcomes.get(0).outcome());
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 37, "expected 37 cobblestone on the worker");
+			helper.assertTrue(ItemStack.matches(chest.getItem(0), renamed), "renamed cobblestone left the chest: " + chest.getItem(0));
+			helper.assertTrue(chest.getItem(1).isEmpty(), "plain cobblestone stayed in the chest");
+			helper.assertTrue(itemsNear(helper, worker.position(), 3.0, Items.COBBLESTONE) == 0, "cobblestone was dropped");
+		});
+	}
+
+	@GameTest
+	public void saveLoadKeepsHaulTasks(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos abs = helper.absolutePos(CONTAINER);
+		worker.tasks().enqueue(new DepositTask(abs, Optional.empty()));
+		worker.tasks().enqueue(new DepositTask(abs, Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))));
+		worker.tasks().enqueue(new WithdrawTask(abs, BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 12));
+
+		WorkerEntity loaded = roundTrip(helper, worker);
+
+		Codec<List<Task<WorkerEntity>>> listCodec = Codec.list(TaskTypes.CODEC);
+		var savedQueue = listCodec.encodeStart(JsonOps.INSTANCE, worker.tasks().snapshot()).getOrThrow();
+		var loadedQueue = listCodec.encodeStart(JsonOps.INSTANCE, loaded.tasks().snapshot()).getOrThrow();
+		helper.assertTrue(loaded.tasks().snapshot().size() == 3, "expected 3 restored tasks, got " + loaded.tasks().snapshot());
+		helper.assertTrue(savedQueue.equals(loadedQueue), "queue differs: " + savedQueue + " vs " + loadedQueue);
 		helper.succeed();
 	}
 

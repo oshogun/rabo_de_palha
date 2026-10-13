@@ -1,0 +1,139 @@
+package io.github.oshogun.rabodepalha.worker.task;
+
+import java.util.Optional;
+
+import io.github.oshogun.rabodepalha.task.FailureReason;
+import io.github.oshogun.rabodepalha.task.Task;
+import io.github.oshogun.rabodepalha.task.TaskOutcome;
+import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Walks into reach of the container at {@link #pos()} and puts every stack of {@link #itemId()} into
+ * it, or the whole inventory if no item is given. Whatever does not fit stays with the worker.
+ */
+public final class DepositTask implements Task<WorkerEntity> {
+	public static final String TYPE_ID = "deposit";
+
+	private final BlockPos pos;
+	private final Optional<Identifier> itemId;
+	private Approach approach;
+	private Item item;
+	private TaskOutcome startFailure;
+
+	public DepositTask(BlockPos pos, Optional<Identifier> itemId) {
+		this.pos = pos.immutable();
+		this.itemId = itemId;
+	}
+
+	public BlockPos pos() {
+		return pos;
+	}
+
+	/** The item to deposit; empty means everything. */
+	public Optional<Identifier> itemId() {
+		return itemId;
+	}
+
+	@Override
+	public void start(WorkerEntity worker) {
+		startFailure = null;
+		item = null;
+		if (itemId.isPresent()) {
+			Identifier id = itemId.get();
+			// ITEM is a defaulted registry (unknown ids resolve to air), so check the key first.
+			if (!BuiltInRegistries.ITEM.containsKey(id) || BuiltInRegistries.ITEM.getValue(id) == Items.AIR) {
+				startFailure = TaskOutcome.failed(FailureReason.MISSING_ITEM, "unknown item " + id);
+				return;
+			}
+			item = BuiltInRegistries.ITEM.getValue(id);
+			if (!worker.hasItem(item)) {
+				startFailure = TaskOutcome.failed(FailureReason.MISSING_ITEM, "no " + id + " in inventory");
+				return;
+			}
+		}
+		approach = Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT);
+		approach.start(worker);
+	}
+
+	@Override
+	public TaskOutcome tick(WorkerEntity worker) {
+		if (startFailure != null) {
+			return startFailure;
+		}
+		switch (approach.tick(worker)) {
+			case PATHING:
+				return TaskOutcome.RUNNING;
+			case FAILED:
+				return approach.failure();
+			case ARRIVED:
+				break;
+		}
+
+		// Looked up on arrival: the block may have changed while walking.
+		Level level = worker.level();
+		Container container = Containers.find(level, pos);
+		if (container == null) {
+			return TaskOutcome.failed(FailureReason.NOT_A_CONTAINER,
+					level.getBlockState(pos).getBlock().getName().getString() + " at " + pos.toShortString() + " is not a container");
+		}
+
+		SimpleContainer inventory = worker.getInventory();
+		int deposited = 0;
+		int left = 0;
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (stack.isEmpty() || (item != null && !stack.is(item))) {
+				continue;
+			}
+			deposited += Containers.insert(container, stack);
+			left += stack.getCount();
+		}
+		if (deposited > 0) {
+			inventory.setChanged();
+			worker.getLookControl().setLookAt(Vec3.atCenterOf(pos));
+			worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+		}
+
+		if (deposited == 0 && left == 0) {
+			// The named item can be lost while walking; only deposit-all treats an empty inventory as done.
+			if (item != null) {
+				return TaskOutcome.failed(FailureReason.MISSING_ITEM, "no " + itemId.get() + " in inventory");
+			}
+			return TaskOutcome.succeeded("nothing to deposit");
+		}
+		if (left > 0) {
+			return TaskOutcome.failed(FailureReason.CONTAINER_FULL, "deposited " + deposited + ", " + left + " left");
+		}
+		return TaskOutcome.succeeded("deposited " + deposited + " items");
+	}
+
+	@Override
+	public void stop(WorkerEntity worker, boolean cancelled) {
+		if (approach != null) {
+			approach.stop(worker);
+		}
+	}
+
+	@Override
+	public String describe() {
+		return "deposit " + itemId.map(Identifier::toString).orElse("all") + " into " + pos.toShortString();
+	}
+
+	@Override
+	public String typeId() {
+		return TYPE_ID;
+	}
+}
