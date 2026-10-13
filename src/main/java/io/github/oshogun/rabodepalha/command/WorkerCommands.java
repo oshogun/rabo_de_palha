@@ -1,5 +1,6 @@
 package io.github.oshogun.rabodepalha.command;
 
+import io.github.oshogun.rabodepalha.mixin.BlockInputAccessor;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -26,9 +27,11 @@ import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.blocks.BlockInput;
 import net.minecraft.commands.arguments.blocks.BlockStateArgument;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.item.ItemArgument;
+import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -48,6 +51,10 @@ public final class WorkerCommands {
 			new SimpleCommandExceptionType(Component.literal("No worker within " + (int) NEAREST_RANGE + " blocks"));
 	private static final SimpleCommandExceptionType NO_WORKERS_SELECTED =
 			new SimpleCommandExceptionType(Component.literal("No workers selected"));
+	private static final SimpleCommandExceptionType BLOCK_NBT_NOT_SUPPORTED = new SimpleCommandExceptionType(Component.literal(
+			"Block entity data ({...}) is not supported by /rdp place; give only the block and its properties"));
+	private static final SimpleCommandExceptionType ITEM_COMPONENTS_NOT_SUPPORTED = new SimpleCommandExceptionType(Component.literal(
+			"Item components ([...]) are not supported; deposit and withdraw match by item only"));
 
 	private WorkerCommands() {
 	}
@@ -76,10 +83,18 @@ public final class WorkerCommands {
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
 										(ctx, workers) -> {
-											BlockState state = BlockStateArgument.getBlock(ctx, "block").getState();
+											BlockInput input = BlockStateArgument.getBlock(ctx, "block");
+											// PlaceTask places only the state, so NBT would be dropped without a word.
+											if (((BlockInputAccessor) input).rabodepalha$getTag() != null) {
+												throw BLOCK_NBT_NOT_SUPPORTED.create();
+											}
+											BlockState state = input.getState();
 											BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
 											return enqueue(ctx, workers, () -> new PlaceTask(pos, state));
 										}))))
+				// A word that parses as an item id is read as the item filter, even if a player has that name:
+				// a bare name in "workers" only ever matches a player, never a worker, so nothing is lost.
+				// Name workers with a selector (@e[type=rabodepalha:worker,name=...]) or a UUID.
 				.then(Commands.literal("deposit")
 						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos())
 										.then(withWorkers(Commands.argument("item", ItemArgument.item(buildContext)),
@@ -208,8 +223,13 @@ public final class WorkerCommands {
 		return workers.size();
 	}
 
-	private static Identifier itemId(CommandContext<CommandSourceStack> ctx) {
-		return BuiltInRegistries.ITEM.getKey(ItemArgument.getItem(ctx, "item").item().value());
+	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */
+	private static Identifier itemId(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+		ItemInput input = ItemArgument.getItem(ctx, "item");
+		if (!input.components().isEmpty()) {
+			throw ITEM_COMPONENTS_NOT_SUPPORTED.create();
+		}
+		return BuiltInRegistries.ITEM.getKey(input.item().value());
 	}
 
 	private static int deposit(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, Optional<Identifier> item)

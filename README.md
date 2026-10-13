@@ -18,9 +18,16 @@ commanded that worker.
 /rdp mine <pos> [workers]
 /rdp place <pos> <block> [workers]
 /rdp give <item> [count] [workers]
+/rdp deposit <pos> [item] [workers]
+/rdp withdraw <pos> <item> [count] [workers]
 /rdp queue [workers]
 /rdp clear [workers]
 ```
+
+Input the commands would ignore is rejected with an error: `place` takes no block-entity NBT
+(`chest{...}`), and `deposit`/`withdraw` take no item components (`dirt[...]`), since they match
+by item only. In `deposit`, a word that parses as an item id is read as the item, so name workers
+with a selector (`@e[type=rabodepalha:worker,name=...]`) or a UUID.
 
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.

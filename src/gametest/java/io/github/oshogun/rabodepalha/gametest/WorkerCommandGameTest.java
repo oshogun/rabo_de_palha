@@ -23,6 +23,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.PermissionLevel;
@@ -252,6 +253,116 @@ public class WorkerCommandGameTest {
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof PlaceTask p && p.state() == expected,
 				"expected one place " + expected + ", got " + queue);
 		assertFeedback(helper, rec, "facing=east");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void placeWithNbtRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		String error = expectFailure(helper, sourceAt(helper, rec, worker), "rdp place " + coords(target) + " minecraft:chest{Items:[]}");
+
+		helper.assertTrue(error.contains("Block entity data"), "unexpected error: " + error);
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
+		helper.assertBlockPresent(Blocks.AIR, TARGET);
+		helper.succeed();
+	}
+
+	@GameTest
+	public void depositWithComponentsRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = sourceAt(helper, rec, worker);
+
+		String error = expectFailure(helper, source, "rdp deposit " + coords(target) + " minecraft:dirt[custom_name=\"x\"]");
+		String withSelector = expectFailure(helper, source,
+				"rdp deposit " + coords(target) + " minecraft:dirt[custom_name=\"x\"] " + worker.getStringUUID());
+
+		helper.assertTrue(error.contains("Item components"), "unexpected error: " + error);
+		helper.assertTrue(withSelector.contains("Item components"), "unexpected error: " + withSelector);
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
+		helper.succeed();
+	}
+
+	@GameTest
+	public void withdrawWithComponentsRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = sourceAt(helper, rec, worker);
+		String item = " minecraft:dirt[custom_name=\"x\"]";
+
+		// Every handler path: no count, count, and count with a selector.
+		List<String> commands = List.of(
+				"rdp withdraw " + coords(target) + item,
+				"rdp withdraw " + coords(target) + item + " 4",
+				"rdp withdraw " + coords(target) + item + " 4 " + worker.getStringUUID());
+		for (String command : commands) {
+			String error = expectFailure(helper, source, command);
+			helper.assertTrue(error.contains("Item components"), "unexpected error for /" + command + ": " + error);
+		}
+
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
+		helper.succeed();
+	}
+
+	@GameTest
+	public void emptyComponentsAccepted(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		run(helper, sourceAt(helper, rec, worker), "rdp withdraw " + coords(target) + " minecraft:dirt[] 3");
+
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof WithdrawTask w
+						&& w.itemId().equals(BuiltInRegistries.ITEM.getKey(Items.DIRT)) && w.count() == 3,
+				"expected one withdraw of 3 dirt, got " + queue);
+		helper.succeed();
+	}
+
+	@GameTest
+	public void depositNameLikeItemIsItem(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		worker.setCustomName(Component.literal("dirt"));
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		// "dirt" is read as the item; the nearest worker gets the task.
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp deposit " + coords(target) + " dirt");
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DepositTask d
+						&& d.itemId().equals(Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))),
+				"expected one deposit dirt, got " + queue);
+		helper.succeed();
+	}
+
+	@GameTest
+	public void depositNamedWorkerViaSelector(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		worker.setCustomName(Component.literal("stone"));
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		// Away from the worker: only the selector can pick it. "distance" keeps other tests' workers out.
+		CommandSourceStack source = source(helper, rec, helper.absoluteVec(new Vec3(6.5, 1, 6.5)), LEVEL_2);
+
+		int result = run(helper, source, "rdp deposit " + coords(target) + " @e[type=rabodepalha:worker,name=stone,distance=..10]");
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DepositTask d && d.itemId().isEmpty(),
+				"expected one deposit all, got " + queue);
 		helper.succeed();
 	}
 
