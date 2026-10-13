@@ -51,6 +51,21 @@ ticket persists across restarts and goes away when the worker goes idle, dies or
 most 32 workers (1568 chunks) hold chunks at once; others wait until a slot frees up. `/rdp list`
 shows `chunks loaded`, `chunks not loaded (cap reached)` or `chunks not loaded` for each worker.
 
+## RTS camera mode
+
+Press `R` (rebindable, category "Rabo-de-palha RTS") to toggle a top-down camera. The server
+decides: the request goes to the server, which answers with the new state. The player body is the
+camera, so Minecraft keeps streaming chunks wherever you pan. Internally the player is put in
+vanilla spectator mode; the entry position, rotation, game mode and abilities are saved and
+restored on exit. Entering needs permission level 2; leaving is always allowed.
+
+- Pan with `W A S D` or by moving the mouse to the screen edge. Speed grows with height and is
+  capped, and the server skips its "moved too quickly" check for players in RTS mode only.
+- Zoom (camera height) with the mouse wheel; rotate with `Q`/`E` or middle-drag. `E` does not
+  open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
+- Logging out, dying, respawning or a server restart while in RTS mode returns the player to
+  normal mode at the entry position. Using `/gamemode` also ends RTS mode.
+
 ## Prerequisites
 
 - JDK 25 or newer.

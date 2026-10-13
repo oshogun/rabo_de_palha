@@ -3,6 +3,10 @@
 	"package": "io.github.oshogun.rabodepalha.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"KeyboardInputMixin",
+		"MinecraftMixin",
+		"MouseHandlerMixin",
+		"SpectatorGuiMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -1,8 +1,11 @@
 package io.github.oshogun.rabodepalha;
 
 import io.github.oshogun.rabodepalha.command.WorkerCommands;
+import io.github.oshogun.rabodepalha.network.ModPayloads;
+import io.github.oshogun.rabodepalha.registry.ModAttachments;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.registry.ModTicketTypes;
+import io.github.oshogun.rabodepalha.rts.RtsMode;
 import io.github.oshogun.rabodepalha.worker.WorkerChunkTickets;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 
@@ -25,6 +28,9 @@ public class RaboDePalha implements ModInitializer {
 		WorkerChunkTickets.init();
 		TaskTypes.bootstrap();
 		WorkerCommands.register();
+		ModAttachments.init();
+		ModPayloads.init();
+		RtsMode.init();
 		LOGGER.info("Rabo-de-palha initialized");
 	}
 
