@@ -98,6 +98,7 @@ class TaskRunnerTest {
 		assertEquals(1, task.ticks);
 		assertEquals(1, outcomes.size());
 		runner.cancelCurrent(CTX);
+		runner.clear(CTX);
 		assertEquals(1, task.stops);
 		assertEquals(1, outcomes.size());
 	}
@@ -125,8 +126,12 @@ class TaskRunnerTest {
 		tick(3);
 
 		assertTrue(runner.isIdle());
+		// MineTask clears its crack overlay in stop, so the running task must be stopped exactly once.
+		assertEquals(1, a.stops);
 		assertEquals(List.of(true), a.cancelledFlags);
+		// Pending tasks never started, so they are neither stopped nor reported.
 		assertEquals(0, b.starts);
+		assertEquals(0, b.stops);
 		assertEquals(List.of(TaskOutcome.CANCELLED), outcomes);
 	}
 

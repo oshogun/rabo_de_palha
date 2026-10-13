@@ -27,12 +27,16 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class WorkerTaskGameTest {
@@ -58,6 +62,20 @@ public class WorkerTaskGameTest {
 
 	private static int count(WorkerEntity worker, Item item) {
 		return worker.getInventory().countItem(item);
+	}
+
+	/** Total count of {@code item} in item entities within {@code radius} blocks of {@code center}. */
+	private static int itemsNear(GameTestHelper helper, Vec3 center, double radius, Item item) {
+		AABB box = AABB.ofSize(center, radius * 2, radius * 2, radius * 2);
+		return helper.getLevel().getEntitiesOfClass(ItemEntity.class, box, entity -> entity.getItem().is(item)).stream()
+				.mapToInt(entity -> entity.getItem().getCount())
+				.sum();
+	}
+
+	private static void assertFailedWith(GameTestHelper helper, List<Recorded> outcomes, FailureReason reason) {
+		helper.assertTrue(outcomes.size() == 1, "task not finished yet");
+		helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && f.reason() == reason,
+				"expected " + reason + ", got " + outcomes.get(0).outcome());
 	}
 
 	@GameTest(maxTicks = 400)
@@ -199,6 +217,273 @@ public class WorkerTaskGameTest {
 			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Failed f && expected.contains(f.reason()),
 					"expected UNREACHABLE/STUCK/TIMEOUT, got " + outcomes.get(0).outcome());
 		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void mineStoneWithoutToolIsNoTool(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(3, 1, 3);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NO_TOOL);
+			helper.assertBlockPresent(Blocks.STONE, rel);
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void mineAirIsAir(GameTestHelper helper) {
+		layFloor(helper);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(new BlockPos(3, 1, 3))));
+
+		helper.succeedWhen(() -> assertFailedWith(helper, outcomes, FailureReason.AIR));
+	}
+
+	@GameTest(maxTicks = 600)
+	public void mineFailsWhenTargetChanged(GameTestHelper helper) {
+		layFloor(helper);
+		// Far enough that the worker has to walk, so the block can be swapped before the break ends.
+		BlockPos rel = new BlockPos(6, 1, 6);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.startSequence()
+				// The task captures its target in start(), which runs on the tick it becomes current.
+				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent(), "mine not started yet"))
+				.thenExecute(() -> {
+					helper.assertTrue(outcomes.isEmpty(), "mine finished before the block was swapped: " + outcomes);
+					helper.setBlock(rel, Blocks.COBBLESTONE);
+				})
+				.thenWaitUntil(() -> assertFailedWith(helper, outcomes, FailureReason.TARGET_CHANGED))
+				.thenExecute(() -> helper.assertBlockPresent(Blocks.COBBLESTONE, rel))
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void mineWithFullInventoryDropsAtFeet(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(2, 1, 1);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.STONE_PICKAXE));
+		for (int i = 1; i < WorkerEntity.INVENTORY_SIZE; i++) {
+			worker.insertOrDrop(new ItemStack(Items.DIRT, 64));
+		}
+		SimpleContainer inventory = worker.getInventory();
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			helper.assertTrue(!inventory.getItem(i).isEmpty(), "inventory slot " + i + " is empty");
+		}
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.succeedWhen(() -> {
+			helper.assertTrue(outcomes.size() == 1, "mine not finished yet");
+			helper.assertTrue(outcomes.get(0).outcome() instanceof TaskOutcome.Succeeded s && s.note().contains("inventory full"),
+					"expected success with an overflow note, got " + outcomes.get(0).outcome());
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 0, "cobblestone went into a full inventory");
+			helper.assertTrue(itemsNear(helper, worker.position(), 2.0, Items.COBBLESTONE) == 1,
+					"no cobblestone dropped at the worker's feet");
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void placeOnStoneIsNotReplaceable(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(3, 1, 3);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT));
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_REPLACEABLE);
+			helper.assertBlockPresent(Blocks.STONE, rel);
+			helper.assertTrue(count(worker, Items.DIRT) == 1, "dirt was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void placeFloatingTorchCannotSurvive(GameTestHelper helper) {
+		layFloor(helper);
+		// Air below and on every side, so a torch has nothing to stand on.
+		BlockPos rel = new BlockPos(3, 2, 3);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.TORCH));
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.TORCH)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.CANNOT_SURVIVE);
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertTrue(count(worker, Items.TORCH) == 1, "torch was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void placeOnArmorStandIsObstructed(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(3, 1, 3);
+		ArmorStand stand = helper.spawn(EntityTypes.ARMOR_STAND, rel);
+		stand.setNoGravity(true);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIRT));
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(rel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.OBSTRUCTED);
+			helper.assertBlockPresent(Blocks.AIR, rel);
+			helper.assertTrue(count(worker, Items.DIRT) == 1, "dirt was consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void cancelStopsNavigation(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(6, 1, 6);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
+				.thenExecute(() -> {
+					worker.tasks().cancelCurrent(worker);
+					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after cancel");
+					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after cancel");
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
+							"expected one Cancelled outcome, got " + outcomes);
+				})
+				.thenExecuteAfter(40, () -> {
+					helper.assertBlockPresent(Blocks.STONE, rel);
+					helper.assertTrue(outcomes.size() == 1, "more outcomes after cancel: " + outcomes);
+				})
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void cancelMidBreakKeepsBlock(GameTestHelper helper) {
+		layFloor(helper);
+		// Next to the worker, so it starts breaking at once; stone with a wooden pickaxe takes ~23 ticks.
+		BlockPos rel = new BlockPos(2, 1, 1);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent(), "mine not started yet"))
+				.thenExecuteAfter(5, () -> {
+					helper.assertTrue(outcomes.isEmpty(), "mine finished before the cancel: " + outcomes);
+					worker.tasks().cancelCurrent(worker);
+					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after cancel");
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
+							"expected one Cancelled outcome, got " + outcomes);
+				})
+				.thenExecuteAfter(40, () -> helper.assertBlockPresent(Blocks.STONE, rel))
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void clearDropsPendingAndStops(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos mineRel = new BlockPos(6, 1, 6);
+		BlockPos placeRel = new BlockPos(4, 1, 6);
+		helper.setBlock(mineRel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.insertOrDrop(new ItemStack(Items.DIRT));
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(mineRel)));
+		worker.tasks().enqueue(new PlaceTask(helper.absolutePos(placeRel), BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
+				.thenExecute(() -> {
+					worker.tasks().clear(worker);
+					helper.assertTrue(worker.tasks().current().isEmpty(), "current task survived clear");
+					helper.assertTrue(worker.tasks().pending().isEmpty(), "pending tasks survived clear");
+					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after clear");
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
+							"expected one Cancelled outcome, got " + outcomes);
+				})
+				.thenExecuteAfter(40, () -> {
+					helper.assertBlockPresent(Blocks.STONE, mineRel);
+					helper.assertBlockPresent(Blocks.AIR, placeRel);
+					helper.assertTrue(count(worker, Items.DIRT) == 1, "dirt was consumed after clear");
+					helper.assertTrue(outcomes.size() == 1, "more outcomes after clear: " + outcomes);
+				})
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void removalClearsTasks(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos rel = new BlockPos(6, 1, 6);
+		helper.setBlock(rel, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		worker.tasks().enqueue(new MineTask(helper.absolutePos(rel)));
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
+				.thenExecute(() -> {
+					worker.discard();
+					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after removal");
+					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after removal");
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
+							"expected one Cancelled outcome, got " + outcomes);
+				})
+				.thenExecuteAfter(40, () -> helper.assertBlockPresent(Blocks.STONE, rel))
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 100)
+	public void deathDropsInventory(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		worker.insertOrDrop(new ItemStack(Items.DIRT, 5));
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		Vec3 deathPos = worker.position();
+		worker.kill(helper.getLevel());
+
+		helper.succeedWhen(() -> {
+			helper.assertTrue(itemsNear(helper, deathPos, 3.0, Items.DIRT) == 5,
+					"expected 5 dropped dirt, got " + itemsNear(helper, deathPos, 3.0, Items.DIRT));
+			helper.assertTrue(itemsNear(helper, deathPos, 3.0, Items.WOODEN_PICKAXE) == 1, "pickaxe was not dropped");
+			helper.assertTrue(worker.getInventory().isEmpty(), "inventory not emptied on death");
+		});
+	}
+
+	@GameTest(maxTicks = 200)
+	public void workerIsPersistentAndIgnoresLoot(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		helper.assertTrue(worker.isPersistenceRequired(), "worker is not persistence-required");
+		helper.assertTrue(!worker.canPickUpLoot(), "worker can pick up loot");
+		ItemEntity item = helper.spawnItem(Items.DIRT, WORKER_START);
+		item.setNoPickUpDelay();
+
+		helper.startSequence()
+				.thenExecuteAfter(40, () -> {
+					helper.assertTrue(item.isAlive(), "dirt item entity was picked up or removed");
+					helper.assertTrue(count(worker, Items.DIRT) == 0, "worker picked up the dirt");
+				})
+				.thenSucceed();
 	}
 
 	@GameTest
