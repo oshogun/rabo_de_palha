@@ -19,12 +19,14 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.server.permissions.PermissionSet;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -54,6 +56,13 @@ public class WorkerCommandGameTest {
 				.withLevel(helper.getLevel())
 				.withPosition(pos)
 				.withPermission(permissions);
+	}
+
+	/** Like {@link #source}, but issued by {@code player}, so the command sees a player source. */
+	private static CommandSourceStack playerSource(GameTestHelper helper, RecordingCommandSource rec, Vec3 pos,
+			PermissionSet permissions, ServerPlayer player) {
+		// withEntity keeps the position and permissions already set.
+		return source(helper, rec, pos, permissions).withEntity(player);
 	}
 
 	/** A level-2 source standing on {@code worker}, so it is the nearest worker. */
@@ -157,6 +166,32 @@ public class WorkerCommandGameTest {
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MoveToTask m && m.pos().equals(target),
 				"expected one move_to " + target + ", got " + queue);
 		assertFeedback(helper, rec, "Queued move to " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void playerOrderRecordsCommander(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		// Not added to the player list, so it is never told about outcomes; only the bookkeeping is checked.
+		ServerPlayer player = (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		CommandSourceStack source = playerSource(helper, rec, worker.position(), LEVEL_2, player);
+		helper.assertTrue(source.getPlayer() == player, "source is not the player");
+
+		int result = run(helper, source, "rdp goto " + coords(target) + " " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MoveToTask m && m.pos().equals(target),
+				"expected one move_to " + target + ", got " + queue);
+		helper.assertTrue(worker.commanders().contains(player.getUUID()),
+				"player not recorded as commander: " + worker.commanders());
+
+		WorkerEntity loaded = WorkerTaskGameTest.roundTrip(helper, worker);
+		helper.assertTrue(loaded.commanders().contains(player.getUUID()),
+				"commander lost on save/load: " + loaded.commanders());
 		helper.succeed();
 	}
 

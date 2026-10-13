@@ -6,10 +6,13 @@ import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.task.TaskRunner;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -36,11 +39,17 @@ import net.minecraft.world.level.storage.ValueOutput;
  */
 public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	public static final int INVENTORY_SIZE = 18;
+	/** Most commanders remembered per worker; the oldest is forgotten first. */
+	public static final int MAX_COMMANDERS = 8;
 	private static final String TASKS_TAG = "Tasks";
+	private static final String COMMANDERS_TAG = "Commanders";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner<WorkerEntity> tasks = new TaskRunner<>();
-	/** Players who gave this worker commands; told about terminal outcomes. Not saved. */
+	/**
+	 * Players who gave this worker commands; told about terminal outcomes while online. Saved, capped at
+	 * {@link #MAX_COMMANDERS}, oldest first and most recent last.
+	 */
 	private final Set<UUID> commanders = new LinkedHashSet<>();
 
 	public WorkerEntity(EntityType<? extends WorkerEntity> type, Level level) {
@@ -70,7 +79,19 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 
 	/** Remembers {@code player} so it is told about this worker's terminal task outcomes. */
 	public void addCommander(UUID player) {
+		// Re-adding moves the player to most recent.
+		commanders.remove(player);
 		commanders.add(player);
+		Iterator<UUID> oldest = commanders.iterator();
+		while (commanders.size() > MAX_COMMANDERS) {
+			oldest.next();
+			oldest.remove();
+		}
+	}
+
+	/** Read-only view of the commanders, oldest first. */
+	public Set<UUID> commanders() {
+		return Collections.unmodifiableSet(commanders);
 	}
 
 	private void notifyCommanders(String message) {
@@ -131,6 +152,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		writeInventoryToTag(output);
 		ValueOutput.TypedOutputList<Task<WorkerEntity>> saved = output.list(TASKS_TAG, TaskTypes.CODEC);
 		tasks.snapshot().forEach(saved::add);
+		ValueOutput.TypedOutputList<UUID> savedCommanders = output.list(COMMANDERS_TAG, UUIDUtil.CODEC);
+		commanders.forEach(savedCommanders::add);
 	}
 
 	@Override
@@ -139,6 +162,9 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		readInventoryFromTag(input);
 		// Undecodable entries are skipped and reported by the input's ProblemReporter.
 		tasks.restore(input.listOrEmpty(TASKS_TAG, TaskTypes.CODEC).stream().toList());
+		// Missing in saves from before commanders were persisted; that loads as no commanders.
+		commanders.clear();
+		input.listOrEmpty(COMMANDERS_TAG, UUIDUtil.CODEC).forEach(this::addCommander);
 	}
 
 	@Override

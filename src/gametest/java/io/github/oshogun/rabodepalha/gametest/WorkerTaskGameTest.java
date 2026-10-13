@@ -13,6 +13,7 @@ import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.serialization.Codec;
@@ -24,6 +25,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -514,15 +516,14 @@ public class WorkerTaskGameTest {
 		worker.tasks().enqueue(new MineTask(abs));
 		worker.tasks().enqueue(new PlaceTask(abs, BuiltInRegistries.BLOCK.getKey(Blocks.DIRT)));
 		worker.tasks().enqueue(new MoveToTask(abs.above(), 321));
+		List<UUID> commanders = List.of(new UUID(0L, 1L), new UUID(0L, 2L), new UUID(0L, 3L));
+		commanders.forEach(worker::addCommander);
 
 		// Save before the worker has ticked, so the queue is exactly what was enqueued.
-		var registries = helper.getLevel().registryAccess();
-		TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
-		worker.saveWithoutId(output);
+		WorkerEntity loaded = roundTrip(helper, worker);
 
-		WorkerEntity loaded = ModEntities.WORKER.create(helper.getLevel(), EntitySpawnReason.LOAD);
-		helper.assertTrue(loaded != null, "could not create a worker");
-		loaded.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, output.buildResult()));
+		helper.assertTrue(List.copyOf(loaded.commanders()).equals(commanders),
+				"commanders differ: " + commanders + " vs " + loaded.commanders());
 
 		Codec<List<Task<WorkerEntity>>> listCodec = Codec.list(TaskTypes.CODEC);
 		var savedQueue = listCodec.encodeStart(JsonOps.INSTANCE, worker.tasks().snapshot()).getOrThrow();
@@ -537,5 +538,65 @@ public class WorkerTaskGameTest {
 					"inventory slot " + i + " differs: " + before.getItem(i) + " vs " + after.getItem(i));
 		}
 		helper.succeed();
+	}
+
+	@GameTest
+	public void saveLoadCapsAndOrdersCommanders(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		List<UUID> added = new ArrayList<>();
+		for (int i = 0; i < WorkerEntity.MAX_COMMANDERS + 2; i++) {
+			added.add(new UUID(0L, i));
+			worker.addCommander(added.get(i));
+		}
+		// The two oldest are gone; re-adding the oldest survivor makes it the most recent.
+		UUID readded = added.get(2);
+		worker.addCommander(readded);
+
+		List<UUID> expected = new ArrayList<>(added.subList(3, added.size()));
+		expected.add(readded);
+		helper.assertTrue(List.copyOf(worker.commanders()).equals(expected),
+				"expected " + expected + ", got " + worker.commanders());
+
+		WorkerEntity loaded = roundTrip(helper, worker);
+		helper.assertTrue(List.copyOf(loaded.commanders()).equals(expected),
+				"after load expected " + expected + ", got " + loaded.commanders());
+		helper.succeed();
+	}
+
+	@GameTest
+	public void loadsSaveWithoutCommanders(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		worker.tasks().enqueue(new MoveToTask(helper.absolutePos(new BlockPos(5, 1, 5))));
+		worker.addCommander(new UUID(0L, 1L));
+
+		var registries = helper.getLevel().registryAccess();
+		TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+		worker.saveWithoutId(output);
+		CompoundTag tag = output.buildResult();
+		helper.assertTrue(tag.contains("Commanders"), "save has no Commanders: " + tag);
+		// Imitates a save made before commanders were persisted.
+		tag.remove("Commanders");
+
+		WorkerEntity loaded = ModEntities.WORKER.create(helper.getLevel(), EntitySpawnReason.LOAD);
+		helper.assertTrue(loaded != null, "could not create a worker");
+		loaded.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, tag));
+
+		helper.assertTrue(loaded.tasks().snapshot().size() == 1, "expected 1 restored task, got " + loaded.tasks().snapshot());
+		helper.assertTrue(loaded.commanders().isEmpty(), "expected no commanders, got " + loaded.commanders());
+		helper.succeed();
+	}
+
+	/** Saves {@code worker} and loads the result into a new, unspawned worker. */
+	static WorkerEntity roundTrip(GameTestHelper helper, WorkerEntity worker) {
+		var registries = helper.getLevel().registryAccess();
+		TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+		worker.saveWithoutId(output);
+
+		WorkerEntity loaded = ModEntities.WORKER.create(helper.getLevel(), EntitySpawnReason.LOAD);
+		helper.assertTrue(loaded != null, "could not create a worker");
+		loaded.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, output.buildResult()));
+		return loaded;
 	}
 }
