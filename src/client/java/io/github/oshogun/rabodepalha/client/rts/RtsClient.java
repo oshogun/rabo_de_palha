@@ -1,5 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.List;
+
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
 
@@ -12,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
@@ -37,14 +40,24 @@ public final class RtsClient {
 	/** Held while right-clicking to place the selected hotbar block. */
 	public static KeyMapping placeOrderKey;
 
-	/** How much of the gap to the target camera height is closed per tick. */
-	private static final double HEIGHT_SMOOTHING = 0.35;
+	/** Toggles freezing the camera height while panning. */
+	public static KeyMapping lockHeightKey;
+
+	/** Time step assumed for the first tick, when there is no previous tick to measure from. */
+	private static final double DEFAULT_TICK_DT = 0.05;
 
 	private static boolean active;
 	private static double height = RtsCameraMath.DEFAULT_HEIGHT;
 	private static float yaw;
-	/** Last known ground height under the camera; kept while the chunk below is not loaded yet. */
-	private static double groundY = Double.NaN;
+	/** Smoothed camera height; keeps the last ground reference while the chunks below are not loaded. */
+	private static RtsCameraMath.HeightState heightState = RtsCameraMath.HeightState.UNSET;
+	private static long lastTickNanos;
+	private static boolean heightLocked;
+	/** Camera pose applied on the previous tick, used as the start of the per-frame interpolation. */
+	private static double lastX = Double.NaN;
+	private static double lastY;
+	private static double lastZ;
+	private static float lastYaw;
 
 	private RtsClient() {
 	}
@@ -60,6 +73,8 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_LALT, CATEGORY));
 		placeOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_place_order",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_LCONTROL, CATEGORY));
+		lockHeightKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_lock_height",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_H, CATEGORY));
 
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
@@ -91,8 +106,8 @@ public final class RtsClient {
 		RtsSelectionClient.clear();
 		if (value) {
 			height = RtsCameraMath.DEFAULT_HEIGHT;
-			groundY = Double.NaN;
-			yaw = client.player != null ? RtsCameraMath.wrapYaw(client.player.getYRot()) : 0.0f;
+			resetHeight();
+			yaw =client.player != null ? RtsCameraMath.wrapYaw(client.player.getYRot()) : 0.0f;
 			client.mouseHandler.releaseMouse();
 		} else if (client.gui.screen() == null) {
 			client.mouseHandler.grabMouse();
@@ -103,7 +118,14 @@ public final class RtsClient {
 		active = false;
 		RtsSelectionClient.clear();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
-		groundY = Double.NaN;
+		resetHeight();
+	}
+
+	private static void resetHeight() {
+		heightState = RtsCameraMath.HeightState.UNSET;
+		lastTickNanos = 0L;
+		heightLocked = false;
+		lastX = Double.NaN;
 	}
 
 	private static void tick(Minecraft client) {
@@ -116,7 +138,13 @@ public final class RtsClient {
 
 		LocalPlayer player = client.player;
 		if (!active || player == null || client.level == null) {
+			while (lockHeightKey.consumeClick()) {
+				// Drop presses made outside RTS mode.
+			}
 			return;
+		}
+		while (lockHeightKey.consumeClick()) {
+			heightLocked = !heightLocked;
 		}
 
 		boolean noScreen = client.gui.screen() == null;
@@ -140,21 +168,67 @@ public final class RtsClient {
 
 		double x = player.getX() + pan.x();
 		double z = player.getZ() + pan.z();
-		int blockX = Mth.floor(x);
-		int blockZ = Mth.floor(z);
-		if (client.level.hasChunk(SectionPos.blockToSectionCoord(blockX), SectionPos.blockToSectionCoord(blockZ))) {
-			groundY = client.level.getHeight(Heightmap.Types.MOTION_BLOCKING, blockX, blockZ);
-		} else if (Double.isNaN(groundY)) {
-			groundY = player.getY() - height;
+		double[] ground = sampleGround(client.level, x, z);
+		double reference = ground[0];
+		if (!heightState.isSet() && Double.isNaN(reference)) {
+			reference = player.getY() - height;
 		}
-		double targetY = groundY + height;
-		double y = player.getY() + (targetY - player.getY()) * HEIGHT_SMOOTHING;
+		long now = System.nanoTime();
+		double dt = lastTickNanos == 0L ? DEFAULT_TICK_DT : (now - lastTickNanos) / 1.0e9;
+		lastTickNanos = now;
+		heightState = RtsCameraMath.filterHeight(heightState, reference, ground[1], height, dt, heightLocked);
+		double y = heightState.y();
+
+		if (Double.isNaN(lastX)) {
+			lastX = player.getX();
+			lastY = player.getY();
+			lastZ = player.getZ();
+			lastYaw = player.getYRot();
+		}
+		// Interpolate explicitly from the pose applied last tick, whatever the player tick did in between.
+		player.setOldPosAndRot(new Vec3(lastX, lastY, lastZ), lastYaw, player.getXRot());
+		player.yHeadRotO = lastYaw;
 
 		player.setDeltaMovement(Vec3.ZERO);
 		player.setPos(x, y, z);
 		player.setYRot(yaw);
 		player.setYHeadRot(yaw);
 		player.setXRot(RtsCameraMath.DEFAULT_PITCH);
+		lastX = x;
+		lastY = y;
+		lastZ = z;
+		lastYaw = yaw;
+	}
+
+	/**
+	 * Samples the ground around the camera column at ({@code x}, {@code z}) and the area it looks at.
+	 * Returns {reference, highest}: the weighted percentile of {@code MOTION_BLOCKING_NO_LEAVES}, and the
+	 * highest {@code MOTION_BLOCKING} column near the camera. Columns in unloaded chunks are skipped, so
+	 * either is NaN when nothing sampled is loaded.
+	 */
+	private static double[] sampleGround(Level level, double x, double z) {
+		List<RtsCameraMath.Offset> offsets = RtsCameraMath.sampleOffsets(height, yaw, RtsCameraMath.DEFAULT_PITCH);
+		double[] reference = new double[offsets.size()];
+		double[] weights = new double[offsets.size()];
+		double[] highest = new double[offsets.size()];
+		for (int i = 0; i < offsets.size(); i++) {
+			RtsCameraMath.Offset offset = offsets.get(i);
+			int blockX = Mth.floor(x + offset.dx());
+			int blockZ = Mth.floor(z + offset.dz());
+			weights[i] = offset.weight();
+			if (!level.hasChunk(SectionPos.blockToSectionCoord(blockX), SectionPos.blockToSectionCoord(blockZ))) {
+				reference[i] = Double.NaN;
+				highest[i] = Double.NaN;
+				continue;
+			}
+			reference[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, blockX, blockZ);
+			highest[i] = offset.nearCamera() ? level.getHeight(Heightmap.Types.MOTION_BLOCKING, blockX, blockZ)
+					: Double.NaN;
+		}
+		return new double[] {
+			RtsCameraMath.weightedPercentile(reference, weights, RtsCameraMath.SAMPLE_PERCENTILE),
+			RtsCameraMath.maxFinite(highest)
+		};
 	}
 
 	/** WASD (through the vanilla movement bindings) plus edge scroll, in screen-relative terms. */

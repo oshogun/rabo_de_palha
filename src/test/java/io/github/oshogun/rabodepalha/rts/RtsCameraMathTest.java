@@ -3,6 +3,8 @@ package io.github.oshogun.rabodepalha.rts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 class RtsCameraMathTest {
@@ -103,5 +105,200 @@ class RtsCameraMathTest {
 		assertEquals(170.0f, RtsCameraMath.wrapYaw(-190.0f), 1e-4f);
 		assertEquals(-180.0f, RtsCameraMath.wrapYaw(180.0f), 1e-4f);
 		assertEquals(45.0f, RtsCameraMath.wrapYaw(45.0f + 720.0f), 1e-4f);
+	}
+
+	private static final double TICK = 0.05;
+	private static final double ZOOM = 24.0;
+
+	/** Seeds the filter at {@code ground} and runs {@code ticks} ticks against a fixed sample. */
+	private static RtsCameraMath.HeightState run(RtsCameraMath.HeightState state, double reference, double highest,
+			int ticks) {
+		for (int i = 0; i < ticks; i++) {
+			state = RtsCameraMath.filterHeight(state, reference, highest, ZOOM, TICK, false);
+		}
+		return state;
+	}
+
+	private static RtsCameraMath.HeightState seeded(double ground) {
+		return RtsCameraMath.filterHeight(RtsCameraMath.HeightState.UNSET, ground, ground, ZOOM, TICK, false);
+	}
+
+	/** Heights for the given offsets over flat ground at {@code flat}, raised to {@code tall} inside the box. */
+	private static double[] terrain(List<RtsCameraMath.Offset> offsets, double flat, double tall, double minX,
+			double maxX, double minZ, double maxZ) {
+		double[] heights = new double[offsets.size()];
+		for (int i = 0; i < offsets.size(); i++) {
+			RtsCameraMath.Offset o = offsets.get(i);
+			boolean inside = o.dx() >= minX && o.dx() <= maxX && o.dz() >= minZ && o.dz() <= maxZ;
+			heights[i] = inside ? tall : flat;
+		}
+		return heights;
+	}
+
+	private static double[] weights(List<RtsCameraMath.Offset> offsets) {
+		return offsets.stream().mapToDouble(RtsCameraMath.Offset::weight).toArray();
+	}
+
+	@Test
+	void singleTallColumnBarelyMovesReference() {
+		List<RtsCameraMath.Offset> offsets = RtsCameraMath.sampleOffsets(ZOOM, 0.0f, RtsCameraMath.DEFAULT_PITCH);
+		double[] column = terrain(offsets, 64.0, 90.0, 0.0, 0.0, 0.0, 0.0);
+		double[] tree = terrain(offsets, 64.0, 72.0, -2.0, 2.0, -2.0, 2.0);
+
+		double columnRef = RtsCameraMath.weightedPercentile(column, weights(offsets), RtsCameraMath.SAMPLE_PERCENTILE);
+		double treeRef = RtsCameraMath.weightedPercentile(tree, weights(offsets), RtsCameraMath.SAMPLE_PERCENTILE);
+		assertEquals(64.0, columnRef, EPS);
+		assertEquals(64.0, treeRef, EPS);
+
+		// High enough zoom that the clearance above the column does not bind.
+		double zoom = 40.0;
+		RtsCameraMath.HeightState state = RtsCameraMath.filterHeight(RtsCameraMath.HeightState.UNSET, 64.0, 64.0, zoom,
+				TICK, false);
+		double startY = state.y();
+		for (int i = 0; i < 100; i++) {
+			state = RtsCameraMath.filterHeight(state, columnRef, 90.0, zoom, TICK, false);
+			assertTrue(state.y() >= 90.0 + RtsCameraMath.MIN_CLEARANCE);
+		}
+		assertTrue(Math.abs(state.y() - startY) < 1.0);
+	}
+
+	@Test
+	void stepUpRaisesCamera() {
+		RtsCameraMath.HeightState state = seeded(64.0);
+		for (int i = 0; i < 10; i++) {
+			state = RtsCameraMath.filterHeight(state, 74.0, 74.0, ZOOM, TICK, false);
+			assertTrue(state.y() >= 74.0 + RtsCameraMath.MIN_CLEARANCE);
+		}
+		assertEquals(74.0 + ZOOM, state.y(), 0.5);
+	}
+
+	@Test
+	void dipLowersSlowly() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+		double startY = start.y();
+		double drop = startY - (50.0 + ZOOM);
+
+		RtsCameraMath.HeightState state = run(start, 50.0, 50.0, 1);
+		assertTrue(startY - state.y() < 1.0);
+		state = run(state, 50.0, 50.0, 9);
+		assertTrue(startY - state.y() < drop / 2.0);
+		state = run(state, 50.0, 50.0, 90);
+		assertEquals(50.0 + ZOOM, state.y(), 0.5);
+	}
+
+	@Test
+	void smallBumpInsideDeadZoneDoesNotMoveCamera() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+
+		RtsCameraMath.HeightState state = run(start, 65.0, 64.0, 20);
+
+		assertEquals(start.ground(), state.ground(), EPS);
+		assertEquals(start.y(), state.y(), EPS);
+	}
+
+	@Test
+	void clearanceAlwaysKept() {
+		double[][] samples = {
+			{64, 64}, {64, 100}, {90, 95}, {40, 120}, {Double.NaN, 70}, {64, 64}, {30, 30}, {200, 205}, {64, 150},
+		};
+		for (boolean locked : new boolean[] {false, true}) {
+			RtsCameraMath.HeightState state = seeded(64.0);
+			for (double[] sample : samples) {
+				for (int i = 0; i < 5; i++) {
+					state = RtsCameraMath.filterHeight(state, sample[0], sample[1], RtsCameraMath.MIN_HEIGHT, TICK,
+							locked);
+					assertTrue(state.y() >= sample[1] + RtsCameraMath.MIN_CLEARANCE,
+							"y " + state.y() + " below clearance over " + sample[1] + " locked=" + locked);
+				}
+			}
+		}
+	}
+
+	@Test
+	void unloadedReferenceKeepsLastHeight() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+
+		RtsCameraMath.HeightState state = run(start, Double.NaN, Double.NaN, 20);
+
+		assertEquals(64.0, state.ground(), EPS);
+		assertEquals(start.y(), state.y(), EPS);
+		assertEquals(RtsCameraMath.HeightState.UNSET,
+				RtsCameraMath.filterHeight(RtsCameraMath.HeightState.UNSET, Double.NaN, Double.NaN, ZOOM, TICK, false));
+	}
+
+	@Test
+	void lockedKeepsTarget() {
+		RtsCameraMath.HeightState state = seeded(64.0);
+		for (int i = 0; i < 40; i++) {
+			state = RtsCameraMath.filterHeight(state, 50.0, 50.0, ZOOM, TICK, true);
+		}
+
+		assertEquals(64.0, state.ground(), EPS);
+		assertEquals(64.0 + ZOOM, state.y(), EPS);
+	}
+
+	@Test
+	void smoothDampIsTimeBased() {
+		RtsCameraMath.Damped half = RtsCameraMath.smoothDamp(100.0, 0.0, 80.0, 1.0, 0.025);
+		RtsCameraMath.Damped twoHalves = RtsCameraMath.smoothDamp(half.value(), half.velocity(), 80.0, 1.0, 0.025);
+		RtsCameraMath.Damped whole = RtsCameraMath.smoothDamp(100.0, 0.0, 80.0, 1.0, 0.05);
+
+		assertEquals(whole.value(), twoHalves.value(), 1e-3);
+		assertEquals(whole.velocity(), twoHalves.velocity(), 1e-2);
+	}
+
+	@Test
+	void smoothDampDoesNotOvershoot() {
+		RtsCameraMath.Damped damped = RtsCameraMath.smoothDamp(70.0, 50.0, 80.0, 0.12, 0.25);
+
+		assertTrue(damped.value() <= 80.0);
+	}
+
+	@Test
+	void largeDtIsClamped() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+
+		RtsCameraMath.HeightState huge = RtsCameraMath.filterHeight(start, 30.0, 30.0, ZOOM, 10.0, false);
+		RtsCameraMath.HeightState capped = RtsCameraMath.filterHeight(start, 30.0, 30.0, ZOOM,
+				RtsCameraMath.MAX_STEP_DT, false);
+
+		assertEquals(capped.y(), huge.y(), EPS);
+		assertTrue(huge.y() > 30.0 + ZOOM + 10.0);
+	}
+
+	@Test
+	void sampleRadiusGrowsWithHeightAndIsCapped() {
+		assertEquals(RtsCameraMath.MIN_SAMPLE_RADIUS, RtsCameraMath.sampleRadius(RtsCameraMath.MIN_HEIGHT), EPS);
+		assertEquals(24.0 * RtsCameraMath.SAMPLE_RADIUS_PER_HEIGHT, RtsCameraMath.sampleRadius(24.0), EPS);
+		assertEquals(RtsCameraMath.MAX_SAMPLE_RADIUS, RtsCameraMath.sampleRadius(RtsCameraMath.MAX_HEIGHT), EPS);
+		assertTrue(RtsCameraMath.sampleRadius(30.0) > RtsCameraMath.sampleRadius(20.0));
+	}
+
+	@Test
+	void sampleOffsetsIncludeLookAtArea() {
+		List<RtsCameraMath.Offset> offsets = RtsCameraMath.sampleOffsets(ZOOM, 0.0f, RtsCameraMath.DEFAULT_PITCH);
+		double distance = RtsCameraMath.lookAtDistance(ZOOM, RtsCameraMath.DEFAULT_PITCH);
+
+		assertEquals(ZOOM / Math.tan(Math.toRadians(60.0)), distance, EPS);
+		assertTrue(offsets.stream().anyMatch(o -> o.dx() == 0.0 && o.dz() == 0.0 && o.nearCamera()));
+		assertTrue(offsets.stream().anyMatch(o -> !o.nearCamera() && o.weight() == RtsCameraMath.LOOK_AT_WEIGHT
+				&& Math.abs(o.dx()) < EPS && Math.abs(o.dz() - distance) < EPS));
+		double lookAtMeanZ = offsets.stream().filter(o -> !o.nearCamera()).mapToDouble(RtsCameraMath.Offset::dz)
+				.average().orElseThrow();
+		assertEquals(distance, lookAtMeanZ, 1e-6);
+		assertTrue(offsets.size() < 300);
+	}
+
+	@Test
+	void weightedPercentileIgnoresNaN() {
+		double[] values = {Double.NaN, 1.0, 2.0, 3.0, 100.0};
+		double[] weights = {50.0, 1.0, 1.0, 1.0, 1.0};
+
+		assertEquals(3.0, RtsCameraMath.weightedPercentile(values, weights, 0.75), EPS);
+		assertEquals(100.0, RtsCameraMath.weightedPercentile(values, weights, 1.0), EPS);
+		assertEquals(1.0, RtsCameraMath.weightedPercentile(values, weights, 0.0), EPS);
+		assertTrue(Double.isNaN(RtsCameraMath.weightedPercentile(new double[] {Double.NaN}, new double[] {1.0}, 0.5)));
+		assertEquals(100.0, RtsCameraMath.maxFinite(values), EPS);
+		assertTrue(Double.isNaN(RtsCameraMath.maxFinite(new double[] {Double.NaN})));
 	}
 }

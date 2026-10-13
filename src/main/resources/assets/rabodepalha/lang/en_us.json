@@ -6,6 +6,7 @@
   "key.rabodepalha.rts_rotate_right": "Rotate RTS camera right",
   "key.rabodepalha.rts_mine_order": "RTS mine order (hold + right-click)",
   "key.rabodepalha.rts_place_order": "RTS place order (hold + right-click)",
+  "key.rabodepalha.rts_lock_height": "Lock camera height",
   "rabodepalha.rts.selected": "Selected: %s",
   "rabodepalha.rts.place_block": "Place: %s",
   "rabodepalha.rts.order.queued": "Appended %s at %s %s %s for %s worker(s)",
