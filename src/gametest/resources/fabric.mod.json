@@ -8,7 +8,8 @@
 	"entrypoints": {
 		"fabric-gametest": [
 			"io.github.oshogun.rabodepalha.gametest.RaboDePalhaGameTest",
-			"io.github.oshogun.rabodepalha.gametest.WorkerTaskGameTest"
+			"io.github.oshogun.rabodepalha.gametest.WorkerTaskGameTest",
+			"io.github.oshogun.rabodepalha.gametest.WorkerCommandGameTest"
 		]
 	},
 	"depends": {
