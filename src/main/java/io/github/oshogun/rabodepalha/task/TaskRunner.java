@@ -15,7 +15,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>A terminal outcome is final: the task is stopped, listeners are notified and the next
  * task starts on the following tick. A RuntimeException thrown by a task becomes
- * {@code Failed(STUCK, e.toString())}.
+ * {@code Failed(ERROR, e.toString())} (and is logged with its stack trace); a null outcome from
+ * {@code tick} becomes {@code Failed(ERROR, "tick returned null")}.
  */
 public class TaskRunner<C> {
 	private static final Logger LOGGER = LoggerFactory.getLogger(TaskRunner.class);
@@ -47,10 +48,12 @@ public class TaskRunner<C> {
 			}
 			outcome = task.tick(ctx);
 			if (outcome == null) {
-				outcome = TaskOutcome.failed(FailureReason.STUCK, "task returned no outcome");
+				LOGGER.warn("Task {} tick returned null", task.describe());
+				outcome = TaskOutcome.failed(FailureReason.ERROR, "tick returned null");
 			}
 		} catch (RuntimeException e) {
-			outcome = TaskOutcome.failed(FailureReason.STUCK, e.toString());
+			LOGGER.warn("Task {} threw", task.describe(), e);
+			outcome = TaskOutcome.failed(FailureReason.ERROR, e.toString());
 		}
 
 		if (outcome.isTerminal()) {
@@ -123,7 +126,8 @@ public class TaskRunner<C> {
 		try {
 			task.stop(ctx, cancelled);
 		} catch (RuntimeException e) {
-			outcome = TaskOutcome.failed(FailureReason.STUCK, e.toString());
+			LOGGER.warn("Task {} threw while stopping", task.describe(), e);
+			outcome = TaskOutcome.failed(FailureReason.ERROR, e.toString());
 		}
 		notifyListeners(task, outcome);
 	}

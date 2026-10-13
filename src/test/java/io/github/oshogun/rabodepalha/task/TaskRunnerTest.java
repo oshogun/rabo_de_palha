@@ -146,12 +146,47 @@ class TaskRunnerTest {
 		assertEquals(3, outcomes.size());
 		for (TaskOutcome outcome : outcomes.subList(0, 2)) {
 			TaskOutcome.Failed failed = assertInstanceOf(TaskOutcome.Failed.class, outcome);
-			assertEquals(FailureReason.STUCK, failed.reason());
+			assertEquals(FailureReason.ERROR, failed.reason());
+			assertTrue(failed.detail().contains("IllegalStateException"), failed.detail());
 			assertTrue(failed.detail().contains("boom"), failed.detail());
 		}
 		assertEquals(List.of(false), throwsOnStart.cancelledFlags);
 		assertEquals(List.of(false), throwsOnTick.cancelledFlags);
 		assertInstanceOf(TaskOutcome.Succeeded.class, outcomes.get(2));
+	}
+
+	@Test
+	void exceptionInStopBecomesFailed() {
+		FakeTask throwsOnStop = new FakeTask("stop", 1);
+		throwsOnStop.throwOnStop = true;
+		runner.enqueue(throwsOnStop);
+		runner.enqueue(new FakeTask("next", 1));
+
+		tick(2);
+
+		assertEquals(2, outcomes.size());
+		TaskOutcome.Failed failed = assertInstanceOf(TaskOutcome.Failed.class, outcomes.get(0));
+		assertEquals(FailureReason.ERROR, failed.reason());
+		assertTrue(failed.detail().contains("boom"), failed.detail());
+		assertInstanceOf(TaskOutcome.Succeeded.class, outcomes.get(1));
+	}
+
+	@Test
+	void nullOutcomeBecomesFailed() {
+		FakeTask returnsNull = new FakeTask("null", 1);
+		returnsNull.returnNull = true;
+		FakeTask next = new FakeTask("next", 1);
+		runner.enqueue(returnsNull);
+		runner.enqueue(next);
+
+		tick(2);
+
+		assertEquals(2, outcomes.size());
+		TaskOutcome.Failed failed = assertInstanceOf(TaskOutcome.Failed.class, outcomes.get(0));
+		assertEquals(FailureReason.ERROR, failed.reason());
+		assertEquals("tick returned null", failed.detail());
+		assertEquals(List.of(false), returnsNull.cancelledFlags);
+		assertInstanceOf(TaskOutcome.Succeeded.class, outcomes.get(1));
 	}
 
 	@Test
@@ -196,6 +231,8 @@ class TaskRunnerTest {
 		private int stops;
 		private boolean throwOnStart;
 		private boolean throwOnTick;
+		private boolean throwOnStop;
+		private boolean returnNull;
 
 		/** Runs for {@code runningTicks - 1} ticks, then succeeds. */
 		FakeTask(String name, int runningTicks) {
@@ -227,6 +264,9 @@ class TaskRunnerTest {
 			if (throwOnTick) {
 				throw new IllegalStateException("boom");
 			}
+			if (returnNull) {
+				return null;
+			}
 			TaskOutcome next = script.pollFirst();
 			return next != null ? next : TaskOutcome.RUNNING;
 		}
@@ -236,6 +276,9 @@ class TaskRunnerTest {
 			stops++;
 			cancelledFlags.add(cancelled);
 			events.add("stop " + name + " " + cancelled);
+			if (throwOnStop) {
+				throw new IllegalStateException("boom");
+			}
 		}
 
 		@Override

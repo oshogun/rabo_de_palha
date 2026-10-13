@@ -11,5 +11,7 @@ public enum FailureReason {
 	NOT_REPLACEABLE,
 	OBSTRUCTED,
 	CANNOT_SURVIVE,
-	TARGET_CHANGED
+	TARGET_CHANGED,
+	/** Unexpected failure inside task code (an exception, or tick returned null). */
+	ERROR
 }
