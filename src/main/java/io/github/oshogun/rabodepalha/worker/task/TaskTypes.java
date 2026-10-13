@@ -15,6 +15,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -69,6 +70,14 @@ public final class TaskTypes {
 			).apply(instance, DigAreaTask::new)).validate(task -> task.volume() <= DigAreaTask.MAX_VOLUME
 					? DataResult.success(task)
 					: DataResult.error(() -> "Dig area of " + task.volume() + " blocks exceeds " + DigAreaTask.MAX_VOLUME)));
+
+	/** Only the parameters: progress is not saved, a loaded task plans the build again. */
+	public static final MapCodec<BuildTask> BUILD = register(BuildTask.TYPE_ID,
+			RecordCodecBuilder.mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("origin").forGetter(BuildTask::origin),
+					Identifier.CODEC.fieldOf("blueprint").forGetter(BuildTask::blueprint),
+					Rotation.CODEC.optionalFieldOf("rotation", Rotation.NONE).forGetter(BuildTask::rotation)
+			).apply(instance, BuildTask::new)));
 
 	/** Dispatches on a {@code type} field; an unknown type decodes to a {@link DataResult} error. */
 	public static final Codec<Task<WorkerEntity>> CODEC = Codec.STRING.partialDispatch("type",

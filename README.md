@@ -20,6 +20,7 @@ commanded that worker.
 /rdp give <item> [count] [workers]
 /rdp deposit <pos> [item] [workers]
 /rdp withdraw <pos> <item> [count] [workers]
+/rdp build <origin> <blueprint> [rotation] [workers]
 /rdp queue [workers]
 /rdp clear [workers]
 ```
@@ -28,6 +29,18 @@ Input the commands would ignore is rejected with an error: `place` takes no bloc
 (`chest{...}`), and `deposit`/`withdraw` take no item components (`dirt[...]`), since they match
 by item only. In `deposit`, a word that parses as an item id is read as the item, so name workers
 with a selector (`@e[type=rabodepalha:worker,name=...]`) or a UUID.
+
+`deposit` with no item puts the worker's whole inventory into the container except damageable
+items (tools, weapons, armor), which the worker keeps; naming an item deposits it even if
+damageable.
+
+`build` places a vanilla structure template (`.nbt`, as saved by structure blocks) by id, with
+`origin` as its corner, optionally turned by `rotation` (`none`, `clockwise_90`, `180`,
+`counterclockwise_90`). It builds bottom-up, skips blocks that are already correct, and uses
+items from the worker's inventory. If materials are short at the start, the task fails with
+`MISSING_ITEM` listing what is needed. Air, structure voids and piston heads are not placed,
+waterlogging is dropped, extended pistons are retracted, and a lone chest half becomes a single
+chest. Blueprints are limited to 4096 entries.
 
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.

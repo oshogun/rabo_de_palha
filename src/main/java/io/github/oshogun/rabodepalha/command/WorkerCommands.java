@@ -4,6 +4,7 @@ import io.github.oshogun.rabodepalha.mixin.BlockInputAccessor;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
@@ -22,13 +23,17 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.IdentifierArgument;
+import net.minecraft.commands.arguments.TemplateRotationArgument;
 import net.minecraft.commands.arguments.blocks.BlockInput;
 import net.minecraft.commands.arguments.blocks.BlockStateArgument;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
@@ -42,6 +47,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -60,6 +66,11 @@ public final class WorkerCommands {
 
 	private static final DynamicCommandExceptionType AREA_TOO_LARGE = new DynamicCommandExceptionType(volume -> Component.literal(
 			"Dig area of " + volume + " blocks is too large; at most " + DigAreaTask.MAX_VOLUME + " blocks"));
+	private static final DynamicCommandExceptionType UNKNOWN_BLUEPRINT =
+			new DynamicCommandExceptionType(id -> Component.literal("Unknown blueprint " + id));
+
+	private static final SuggestionProvider<CommandSourceStack> BLUEPRINTS = (ctx, builder) ->
+			SharedSuggestionProvider.suggestResource(ctx.getSource().getServer().getStructureTemplateManager().listTemplates(), builder);
 
 	private WorkerCommands() {
 	}
@@ -100,6 +111,13 @@ public final class WorkerCommands {
 											BlockPos pos = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
 											return enqueue(ctx, workers, () -> new PlaceTask(pos, state));
 										}))))
+				// As for "give" below, "rotation" goes before "workers".
+				.then(Commands.literal("build")
+						.then(Commands.argument("origin", BlockPosArgument.blockPos())
+								.then(withWorkers(Commands.argument("blueprint", IdentifierArgument.id()).suggests(BLUEPRINTS)
+												.then(withWorkers(Commands.argument("rotation", TemplateRotationArgument.templateRotation()),
+														(ctx, workers) -> build(ctx, workers, TemplateRotationArgument.getRotation(ctx, "rotation")))),
+										(ctx, workers) -> build(ctx, workers, Rotation.NONE)))))
 				// A word that parses as an item id is read as the item filter, even if a player has that name:
 				// a bare name in "workers" only ever matches a player, never a worker, so nothing is lost.
 				// Name workers with a selector (@e[type=rabodepalha:worker,name=...]) or a UUID.
@@ -239,6 +257,16 @@ public final class WorkerCommands {
 			throw AREA_TOO_LARGE.create(sample.volume());
 		}
 		return enqueue(ctx, workers, () -> new DigAreaTask(from, to));
+	}
+
+	private static int build(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, Rotation rotation)
+			throws CommandSyntaxException {
+		BlockPos origin = BlockPosArgument.getLoadedBlockPos(ctx, "origin");
+		Identifier blueprint = IdentifierArgument.getId(ctx, "blueprint");
+		if (ctx.getSource().getServer().getStructureTemplateManager().get(blueprint).isEmpty()) {
+			throw UNKNOWN_BLUEPRINT.create(blueprint);
+		}
+		return enqueue(ctx, workers, () -> new BuildTask(origin, blueprint, rotation));
 	}
 
 	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */

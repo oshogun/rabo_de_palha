@@ -3,6 +3,7 @@ package io.github.oshogun.rabodepalha.gametest;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
@@ -12,6 +13,7 @@ import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +27,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.PermissionLevel;
@@ -34,6 +37,7 @@ import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -251,6 +255,61 @@ public class WorkerCommandGameTest {
 		String error = expectFailure(helper, sourceAt(helper, rec, worker), "rdp dig " + coords(from) + " " + coords(to));
 
 		helper.assertTrue(error.contains("too large"), "unexpected error: " + error);
+		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
+		helper.succeed();
+	}
+
+	@GameTest
+	public void buildQueuesBuildTask(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		Identifier id = WorkerTaskGameTest.blueprint(helper, "command_build_rotated", Map.of(BlockPos.ZERO, Blocks.COBBLESTONE.defaultBlockState()));
+		BlockPos origin = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+		// Away from the worker: only the selector can pick it.
+		CommandSourceStack source = source(helper, rec, helper.absoluteVec(new Vec3(6.5, 1, 6.5)), LEVEL_2);
+
+		int result = run(helper, source, "rdp build " + coords(origin) + " " + id + " clockwise_90 " + worker.getStringUUID());
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof BuildTask b && b.origin().equals(origin)
+						&& b.blueprint().equals(id) && b.rotation() == Rotation.CLOCKWISE_90,
+				"expected one build " + id + " at " + origin + " turned clockwise_90, got " + queue);
+		assertFeedback(helper, rec, "Queued build " + id + " at " + origin.toShortString() + " turned clockwise_90 for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void buildWithoutRotationDefaultsNone(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		Identifier id = WorkerTaskGameTest.blueprint(helper, "command_build_plain", Map.of(BlockPos.ZERO, Blocks.COBBLESTONE.defaultBlockState()));
+		BlockPos origin = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp build " + coords(origin) + " " + id);
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof BuildTask b && b.origin().equals(origin)
+						&& b.blueprint().equals(id) && b.rotation() == Rotation.NONE,
+				"expected one unrotated build " + id + " at " + origin + ", got " + queue);
+		assertFeedback(helper, rec, "Queued build " + id + " at " + origin.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void buildUnknownBlueprintRejected(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos origin = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		String error = expectFailure(helper, sourceAt(helper, rec, worker),
+				"rdp build " + coords(origin) + " rabodepalha:gametest/no_such_command_blueprint");
+
+		helper.assertTrue(error.equals("Unknown blueprint rabodepalha:gametest/no_such_command_blueprint"), "unexpected error: " + error);
 		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + queueOf(worker));
 		helper.succeed();
 	}

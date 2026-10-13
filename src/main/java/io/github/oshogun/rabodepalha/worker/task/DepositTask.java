@@ -22,7 +22,8 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Walks into reach of the container at {@link #pos()} and puts every stack of {@link #itemId()} into
- * it, or the whole inventory if no item is given. Whatever does not fit stays with the worker:
+ * it, or the whole inventory except damageable items (tools, weapons, armor) if no item is given;
+ * naming an item deposits it even if damageable. Whatever does not fit stays with the worker:
  * {@link FailureReason#CONTAINER_FULL} if there was no room, {@link FailureReason#ITEM_REFUSED} if the
  * container's slot rules accept none of the leftover items.
  */
@@ -96,9 +97,15 @@ public final class DepositTask implements Task<WorkerEntity> {
 		int deposited = 0;
 		int left = 0;
 		int refused = 0;
+		int kept = 0;
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
 			ItemStack stack = inventory.getItem(i);
 			if (stack.isEmpty() || (item != null && !stack.is(item))) {
+				continue;
+			}
+			// Deposit-all leaves the worker its tools, weapons and armor; naming one still deposits it.
+			if (item == null && stack.isDamageableItem()) {
+				kept += stack.getCount();
 				continue;
 			}
 			deposited += Containers.insert(container, stack);
@@ -122,7 +129,7 @@ public final class DepositTask implements Task<WorkerEntity> {
 			if (item != null) {
 				return TaskOutcome.failed(FailureReason.MISSING_ITEM, "no " + itemId.get() + " in inventory");
 			}
-			return TaskOutcome.succeeded("nothing to deposit");
+			return TaskOutcome.succeeded("nothing to deposit" + keptNote(kept));
 		}
 		if (left > 0) {
 			return TaskOutcome.failed(FailureReason.CONTAINER_FULL, "deposited " + deposited + ", " + left + " left"
@@ -131,7 +138,11 @@ public final class DepositTask implements Task<WorkerEntity> {
 		if (refused > 0) {
 			return TaskOutcome.failed(FailureReason.ITEM_REFUSED, "deposited " + deposited + ", " + refused + " not accepted");
 		}
-		return TaskOutcome.succeeded("deposited " + deposited + " items");
+		return TaskOutcome.succeeded("deposited " + deposited + " items" + keptNote(kept));
+	}
+
+	private static String keptNote(int kept) {
+		return kept > 0 ? ", kept " + kept + " tools" : "";
 	}
 
 	@Override

@@ -38,7 +38,7 @@ public final class PlaceTask implements Task<WorkerEntity> {
 	public static final String TYPE_ID = "place";
 
 	/** One block of the placement: {@code name} is how chat messages refer to it. */
-	private record Part(String name, BlockPos pos, BlockState state) {
+	record Part(String name, BlockPos pos, BlockState state) {
 	}
 
 	private final BlockPos pos;
@@ -79,7 +79,8 @@ public final class PlaceTask implements Task<WorkerEntity> {
 			startFailure = missingItem();
 			return;
 		}
-		approach = Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT);
+		// Stay out of the cells being filled, so the worker never obstructs its own placement.
+		approach = Approach.toWorkOnClearOf(pos, parts().stream().map(Part::pos).toList(), Approach.DEFAULT_TIMEOUT);
 		approach.start(worker);
 	}
 
@@ -107,7 +108,7 @@ public final class PlaceTask implements Task<WorkerEntity> {
 			if (level.isOutsideBuildHeight(part.pos()) || !level.getBlockState(part.pos()).canBeReplaced()) {
 				return failed(FailureReason.NOT_REPLACEABLE, part, "is not replaceable");
 			}
-			// Entities (the worker included) count as obstructions.
+			// Entities count as obstructions; the approach keeps the worker itself out of the way.
 			if (!level.isUnobstructed(part.state(), part.pos(), CollisionContext.empty())) {
 				return failed(FailureReason.OBSTRUCTED, part, "is obstructed");
 			}
@@ -136,8 +137,15 @@ public final class PlaceTask implements Task<WorkerEntity> {
 		return TaskOutcome.succeeded("placed " + block.getName().getString());
 	}
 
-	/** The blocks to set, primary first. */
 	private List<Part> parts() {
+		return parts(pos, state);
+	}
+
+	/**
+	 * The blocks that placing {@code state} at {@code pos} sets, primary first: two parts for
+	 * doors, tall plants and beds, otherwise one.
+	 */
+	static List<Part> parts(BlockPos pos, BlockState state) {
 		if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) {
 			return List.of(
 					new Part("lower half", pos, state.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.LOWER)),

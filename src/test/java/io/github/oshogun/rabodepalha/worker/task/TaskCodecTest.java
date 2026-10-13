@@ -26,6 +26,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Half;
@@ -172,6 +173,29 @@ class TaskCodecTest {
 		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, new BlockPos(16, 16, 16)).getOrThrow());
 
 		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
+	@Test
+	void buildRoundTrips() {
+		Identifier hut = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			BuildTask task = assertInstanceOf(BuildTask.class,
+					roundTrip(ops, new BuildTask(new BlockPos(3, 64, -8), hut, Rotation.CLOCKWISE_90)));
+			assertEquals(new BlockPos(3, 64, -8), task.origin());
+			assertEquals(hut, task.blueprint());
+			assertEquals(Rotation.CLOCKWISE_90, task.rotation());
+		}
+	}
+
+	@Test
+	void buildDefaultsRotationNone() {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", BuildTask.TYPE_ID);
+		json.add("origin", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.addProperty("blueprint", "rabodepalha:hut");
+
+		BuildTask task = assertInstanceOf(BuildTask.class, TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow());
+		assertEquals(Rotation.NONE, task.rotation());
 	}
 
 	private static JsonObject withdrawJson() {

@@ -9,6 +9,7 @@ import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -29,6 +30,8 @@ public final class Approach {
 	private final boolean standAt;
 	private final boolean offTarget;
 	private final int timeoutTicks;
+	/** Cells the worker's body must not overlap when it arrives (or stand in, for picked spots). */
+	private final List<BlockPos> keepClear;
 
 	private List<BlockPos> candidates = List.of();
 	private int candidateIndex;
@@ -40,16 +43,25 @@ public final class Approach {
 	private State state = State.PATHING;
 	private TaskOutcome.Failed failure;
 
-	private Approach(BlockPos target, boolean standAt, boolean offTarget, int timeoutTicks) {
+	private Approach(BlockPos target, boolean standAt, boolean offTarget, List<BlockPos> keepClear, int timeoutTicks) {
 		this.target = target.immutable();
 		this.standAt = standAt;
 		this.offTarget = offTarget;
+		this.keepClear = List.copyOf(keepClear);
 		this.timeoutTicks = timeoutTicks;
 	}
 
 	/** Reach = eye within {@link StandSpots#REACH} of the target's center (for mining/placing). */
 	public static Approach toWorkOn(BlockPos target, int timeoutTicks) {
-		return new Approach(target, false, false, timeoutTicks);
+		return new Approach(target, false, false, List.of(), timeoutTicks);
+	}
+
+	/**
+	 * Like {@link #toWorkOn}, but never arrives while the worker's body overlaps one of {@code keepClear}
+	 * and does not pick spots where it would, so the worker does not stand where it is about to place.
+	 */
+	public static Approach toWorkOnClearOf(BlockPos target, List<BlockPos> keepClear, int timeoutTicks) {
+		return new Approach(target, false, false, keepClear, timeoutTicks);
 	}
 
 	/**
@@ -57,12 +69,12 @@ public final class Approach {
 	 * spot above it, so mining the target can't pull the floor from under the worker.
 	 */
 	public static Approach toWorkOnFromBeside(BlockPos target, int timeoutTicks) {
-		return new Approach(target, false, true, timeoutTicks);
+		return new Approach(target, false, true, List.of(), timeoutTicks);
 	}
 
 	/** Reach = within {@link #MOVE_REACH} of the target's bottom center (for moving). */
 	public static Approach toStandAt(BlockPos target, int timeoutTicks) {
-		return new Approach(target, true, false, timeoutTicks);
+		return new Approach(target, true, false, List.of(), timeoutTicks);
 	}
 
 	public void start(WorkerEntity worker) {
@@ -82,6 +94,8 @@ public final class Approach {
 				? List.of(target)
 				: StandSpots.candidates(worker.level(), target, worker.position(), worker.getEyeHeight()).stream()
 						.filter(spot -> !offTarget || !spot.below().equals(target))
+						// The worker is under two blocks tall: its body fills the spot and the cell above.
+						.filter(spot -> !keepClear.contains(spot) && !keepClear.contains(spot.above()))
 						.toList();
 		if (!canPath(worker)) {
 			// Freshly spawned/loaded or falling: navigation refuses to path until on ground.
@@ -154,6 +168,11 @@ public final class Approach {
 	public boolean inReach(WorkerEntity worker) {
 		if (offTarget && worker.getOnPos().equals(target)) {
 			return false;
+		}
+		for (BlockPos cell : keepClear) {
+			if (worker.getBoundingBox().intersects(new AABB(cell))) {
+				return false;
+			}
 		}
 		return standAt
 				? worker.position().distanceTo(Vec3.atBottomCenterOf(target)) <= MOVE_REACH

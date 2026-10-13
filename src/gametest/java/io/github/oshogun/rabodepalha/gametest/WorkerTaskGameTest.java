@@ -5,6 +5,7 @@ import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
@@ -15,7 +16,9 @@ import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,10 +34,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.IntTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
@@ -51,6 +59,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.BrewingStandBlockEntity;
@@ -58,10 +67,12 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.phys.AABB;
@@ -1409,6 +1420,349 @@ public class WorkerTaskGameTest {
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof DigAreaTask d && d.from().equals(from) && d.to().equals(to),
 				"expected the dig area back, got " + queue);
 		helper.succeed();
+	}
+
+	/**
+	 * Registers a structure template {@code rabodepalha:gametest/<name>} holding {@code blocks} (keyed by
+	 * position within the template), as if saved by a structure block. Names must be unique per test.
+	 */
+	static Identifier blueprint(GameTestHelper helper, String name, Map<BlockPos, BlockState> blocks) {
+		Identifier id = Identifier.fromNamespaceAndPath("rabodepalha", "gametest/" + name);
+		ListTag palette = new ListTag();
+		ListTag blockList = new ListTag();
+		List<BlockState> seen = new ArrayList<>();
+		int sizeX = 1, sizeY = 1, sizeZ = 1;
+		for (Map.Entry<BlockPos, BlockState> entry : blocks.entrySet()) {
+			BlockPos pos = entry.getKey();
+			int index = seen.indexOf(entry.getValue());
+			if (index < 0) {
+				index = seen.size();
+				seen.add(entry.getValue());
+				palette.add(NbtUtils.writeBlockState(entry.getValue()));
+			}
+			CompoundTag block = new CompoundTag();
+			ListTag posTag = new ListTag();
+			posTag.add(IntTag.valueOf(pos.getX()));
+			posTag.add(IntTag.valueOf(pos.getY()));
+			posTag.add(IntTag.valueOf(pos.getZ()));
+			block.put("pos", posTag);
+			block.putInt("state", index);
+			blockList.add(block);
+			sizeX = Math.max(sizeX, pos.getX() + 1);
+			sizeY = Math.max(sizeY, pos.getY() + 1);
+			sizeZ = Math.max(sizeZ, pos.getZ() + 1);
+		}
+		CompoundTag tag = new CompoundTag();
+		ListTag size = new ListTag();
+		size.add(IntTag.valueOf(sizeX));
+		size.add(IntTag.valueOf(sizeY));
+		size.add(IntTag.valueOf(sizeZ));
+		tag.put("size", size);
+		tag.put("palette", palette);
+		tag.put("blocks", blockList);
+		tag.put("entities", new ListTag());
+		StructureTemplate template = helper.getLevel().getStructureTemplateManager().getOrCreate(id);
+		template.load(helper.getLevel().registryAccess().lookupOrThrow(Registries.BLOCK), tag);
+		return id;
+	}
+
+	private static final BlockState COBBLE = Blocks.COBBLESTONE.defaultBlockState();
+	private static final BlockState PLANKS = Blocks.OAK_PLANKS.defaultBlockState();
+	private static final BlockState HUT_DOOR = Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.NORTH);
+	private static final BlockPos BUILD_ORIGIN = new BlockPos(3, 1, 3);
+
+	/** A 3x3 hut: two layers of cobblestone walls with a door on the north side, and a plank roof. */
+	private static Map<BlockPos, BlockState> hut() {
+		Map<BlockPos, BlockState> blocks = new LinkedHashMap<>();
+		for (int y = 0; y < 2; y++) {
+			for (int x = 0; x < 3; x++) {
+				for (int z = 0; z < 3; z++) {
+					if (x == 1 && z == 1) {
+						continue;
+					}
+					boolean door = x == 1 && z == 0;
+					blocks.put(new BlockPos(x, y, z), !door ? COBBLE
+							: HUT_DOOR.setValue(DoorBlock.HALF, y == 0 ? DoubleBlockHalf.LOWER : DoubleBlockHalf.UPPER));
+				}
+			}
+		}
+		for (int x = 0; x < 3; x++) {
+			for (int z = 0; z < 3; z++) {
+				blocks.put(new BlockPos(x, 2, z), PLANKS);
+			}
+		}
+		return blocks;
+	}
+
+	private static String buildNote(GameTestHelper helper, List<Recorded> outcomes) {
+		helper.assertTrue(outcomes.size() == 1, "build not finished yet");
+		if (outcomes.get(0).outcome() instanceof TaskOutcome.Succeeded s) {
+			return s.note();
+		}
+		helper.fail("build did not succeed: " + outcomes.get(0).outcome());
+		return "";
+	}
+
+	@GameTest(maxTicks = 2400)
+	public void buildsHutWithMaterials(GameTestHelper helper) {
+		layFloor(helper);
+		Map<BlockPos, BlockState> hut = hut();
+		Identifier id = blueprint(helper, "hut", hut);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 14));
+		worker.insertOrDrop(new ItemStack(Items.OAK_PLANKS, 9));
+		worker.insertOrDrop(new ItemStack(Items.OAK_DOOR));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(BUILD_ORIGIN), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			String note = buildNote(helper, outcomes);
+			helper.assertTrue(note.equals("built " + id + ": placed 24, 0 already correct"), "unexpected note: " + note);
+			hut.forEach((pos, state) -> {
+				BlockState placed = helper.getBlockState(BUILD_ORIGIN.offset(pos));
+				helper.assertTrue(placed == state, "at " + pos.toShortString() + " expected " + state + ", got " + placed);
+			});
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker has materials left: " + worker.getInventory());
+		});
+	}
+
+	@GameTest(maxTicks = 1200)
+	public void buildRotatedClockwise90(GameTestHelper helper) {
+		layFloor(helper);
+		Map<BlockPos, BlockState> wall = new LinkedHashMap<>();
+		wall.put(new BlockPos(0, 0, 0), COBBLE);
+		wall.put(new BlockPos(1, 0, 0), COBBLE);
+		wall.put(new BlockPos(2, 0, 0), COBBLE);
+		BlockState stairs = Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.EAST);
+		wall.put(new BlockPos(0, 1, 0), stairs);
+		Identifier id = blueprint(helper, "rotated_wall", wall);
+		BlockPos origin = new BlockPos(5, 1, 3);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 3));
+		worker.insertOrDrop(new ItemStack(Items.OAK_STAIRS));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(origin), id, Rotation.CLOCKWISE_90));
+
+		helper.succeedWhen(() -> {
+			buildNote(helper, outcomes);
+			// Turned clockwise, the wall runs south (+z) from the origin and the stairs face south.
+			helper.assertBlockPresent(Blocks.COBBLESTONE, origin);
+			helper.assertBlockPresent(Blocks.COBBLESTONE, origin.south());
+			helper.assertBlockPresent(Blocks.COBBLESTONE, origin.south(2));
+			helper.assertBlockPresent(Blocks.AIR, origin.east());
+			BlockState placed = helper.getBlockState(origin.above());
+			BlockState expected = stairs.setValue(StairBlock.FACING, Direction.SOUTH);
+			helper.assertTrue(placed == expected, "expected " + expected + ", got " + placed);
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void buildMissingMaterialsFails(GameTestHelper helper) {
+		layFloor(helper);
+		Map<BlockPos, BlockState> hut = hut();
+		Identifier id = blueprint(helper, "hut_short", hut);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 5));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(BUILD_ORIGIN), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.MISSING_ITEM);
+			String detail = ((TaskOutcome.Failed) outcomes.get(0).outcome()).detail();
+			for (String part : List.of("9 minecraft:cobblestone", "9 minecraft:oak_planks", "1 minecraft:oak_door")) {
+				helper.assertTrue(detail.contains(part), "detail does not list " + part + ": " + detail);
+			}
+			hut.keySet().forEach(pos -> helper.assertBlockPresent(Blocks.AIR, BUILD_ORIGIN.offset(pos)));
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 5, "worker lost cobblestone");
+		});
+	}
+
+	@GameTest(maxTicks = 1200)
+	public void buildSkipsAlreadyCorrect(GameTestHelper helper) {
+		layFloor(helper);
+		BlockState wetStairs = Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.WATERLOGGED, true);
+		BlockState dryStairs = wetStairs.setValue(StairBlock.WATERLOGGED, false);
+		Map<BlockPos, BlockState> wall = new LinkedHashMap<>();
+		wall.put(new BlockPos(0, 0, 0), COBBLE);
+		wall.put(new BlockPos(1, 0, 0), COBBLE);
+		wall.put(new BlockPos(2, 0, 0), COBBLE);
+		wall.put(new BlockPos(3, 0, 0), wetStairs);
+		Identifier id = blueprint(helper, "partly_built_wall", wall);
+		helper.setBlock(BUILD_ORIGIN, COBBLE);
+		helper.setBlock(BUILD_ORIGIN.east(), COBBLE);
+		// Already correct for the waterlogged entry, which is built dry.
+		helper.setBlock(BUILD_ORIGIN.east(3), dryStairs);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(BUILD_ORIGIN), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			String note = buildNote(helper, outcomes);
+			helper.assertTrue(note.equals("built " + id + ": placed 1, 3 already correct"), "unexpected note: " + note);
+			helper.assertBlockPresent(Blocks.COBBLESTONE, BUILD_ORIGIN.east(2));
+			helper.assertTrue(helper.getBlockState(BUILD_ORIGIN.east(3)) == dryStairs, "stairs changed");
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 0, "cobblestone was not consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 1200)
+	public void buildWithWorkerInsideFootprint(GameTestHelper helper) {
+		layFloor(helper);
+		Map<BlockPos, BlockState> wall = new LinkedHashMap<>();
+		wall.put(new BlockPos(0, 0, 0), COBBLE);
+		wall.put(new BlockPos(1, 0, 0), COBBLE);
+		wall.put(new BlockPos(2, 0, 0), COBBLE);
+		wall.put(new BlockPos(1, 1, 0), COBBLE);
+		Identifier id = blueprint(helper, "wall_through_worker", wall);
+		// The wall runs through the worker's start cell, (1, 1, 1), and the cell above it.
+		BlockPos origin = WORKER_START.west();
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 4));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(origin), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			String note = buildNote(helper, outcomes);
+			helper.assertTrue(note.equals("built " + id + ": placed 4, 0 already correct"), "unexpected note: " + note);
+			wall.keySet().forEach(pos -> helper.assertBlockPresent(Blocks.COBBLESTONE, origin.offset(pos)));
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 0, "cobblestone was not consumed");
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void buildUnknownBlueprintFails(GameTestHelper helper) {
+		layFloor(helper);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		Identifier id = Identifier.fromNamespaceAndPath("rabodepalha", "gametest/no_such_blueprint");
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(BUILD_ORIGIN), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.ERROR);
+			helper.assertTrue(((TaskOutcome.Failed) outcomes.get(0).outcome()).detail().contains("unknown blueprint " + id),
+					"detail does not name the blueprint: " + outcomes.get(0).outcome());
+		});
+	}
+
+	@GameTest(maxTicks = 1600)
+	public void buildNormalizesContextStates(GameTestHelper helper) {
+		layFloor(helper);
+		BlockState wetStairs = Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.WATERLOGGED, true);
+		BlockState extendedPiston = Blocks.PISTON.defaultBlockState()
+				.setValue(BlockStateProperties.FACING, Direction.UP)
+				.setValue(BlockStateProperties.EXTENDED, true);
+		BlockState head = Blocks.PISTON_HEAD.defaultBlockState().setValue(BlockStateProperties.FACING, Direction.UP);
+		// Facing north, a LEFT half connects east to the RIGHT half.
+		BlockState chest = Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, Direction.NORTH);
+		Map<BlockPos, BlockState> blocks = new LinkedHashMap<>();
+		blocks.put(new BlockPos(0, 0, 0), wetStairs);
+		blocks.put(new BlockPos(2, 0, 0), extendedPiston);
+		blocks.put(new BlockPos(2, 1, 0), head);
+		// A half captured without its partner, which would be at (1, 0, 2).
+		blocks.put(new BlockPos(0, 0, 2), chest.setValue(ChestBlock.TYPE, ChestType.LEFT));
+		blocks.put(new BlockPos(3, 0, 2), chest.setValue(ChestBlock.TYPE, ChestType.LEFT));
+		blocks.put(new BlockPos(4, 0, 2), chest.setValue(ChestBlock.TYPE, ChestType.RIGHT));
+		Identifier id = blueprint(helper, "context_states", blocks);
+		BlockPos origin = new BlockPos(2, 1, 3);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.OAK_STAIRS));
+		worker.insertOrDrop(new ItemStack(Items.PISTON));
+		worker.insertOrDrop(new ItemStack(Items.CHEST, 3));
+		worker.tasks().enqueue(new BuildTask(helper.absolutePos(origin), id, Rotation.NONE));
+
+		helper.succeedWhen(() -> {
+			String note = buildNote(helper, outcomes);
+			helper.assertTrue(note.startsWith("built " + id + ": placed 5, 0 already correct, 1 placed dry, 1 unplaceable"),
+					"unexpected note: " + note);
+			BlockState stairs = helper.getBlockState(origin);
+			helper.assertTrue(stairs == wetStairs.setValue(StairBlock.WATERLOGGED, false), "stairs are " + stairs);
+			helper.assertTrue(stairs.getFluidState().isEmpty(), "water at the stairs");
+			BlockState piston = helper.getBlockState(origin.offset(2, 0, 0));
+			helper.assertTrue(piston == extendedPiston.setValue(BlockStateProperties.EXTENDED, false), "piston is " + piston);
+			helper.assertBlockPresent(Blocks.AIR, origin.offset(2, 1, 0));
+			BlockState lone = helper.getBlockState(origin.offset(0, 0, 2));
+			helper.assertTrue(lone == chest.setValue(ChestBlock.TYPE, ChestType.SINGLE), "lone half is " + lone);
+			BlockState left = helper.getBlockState(origin.offset(3, 0, 2));
+			BlockState right = helper.getBlockState(origin.offset(4, 0, 2));
+			helper.assertTrue(left == chest.setValue(ChestBlock.TYPE, ChestType.LEFT), "left half is " + left);
+			helper.assertTrue(right == chest.setValue(ChestBlock.TYPE, ChestType.RIGHT), "right half is " + right);
+			helper.assertTrue(worker.getInventory().isEmpty(), "worker has materials left: " + worker.getInventory());
+		});
+	}
+
+	@GameTest
+	public void saveLoadKeepsBuild(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos origin = helper.absolutePos(BUILD_ORIGIN);
+		Identifier id = Identifier.fromNamespaceAndPath("rabodepalha", "gametest/saved_build");
+		worker.tasks().enqueue(new BuildTask(origin, id, Rotation.CLOCKWISE_180));
+
+		WorkerEntity loaded = roundTrip(helper, worker);
+
+		List<Task<WorkerEntity>> queue = loaded.tasks().snapshot();
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof BuildTask b && b.origin().equals(origin)
+				&& b.blueprint().equals(id) && b.rotation() == Rotation.CLOCKWISE_180,
+				"expected the build back, got " + queue);
+		helper.succeed();
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositAllKeepsTools(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIAMOND_PICKAXE));
+		worker.insertOrDrop(new ItemStack(Items.COBBLESTONE, 16));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			String note = ((TaskOutcome.Succeeded) outcomes.get(0).outcome()).note();
+			helper.assertTrue(note.contains("kept 1"), "note does not mention the kept pickaxe: " + note);
+			helper.assertTrue(chest.countItem(Items.COBBLESTONE) == 16, "expected 16 cobblestone in the chest");
+			helper.assertTrue(chest.countItem(Items.DIAMOND_PICKAXE) == 0, "pickaxe went into the chest");
+			helper.assertTrue(count(worker, Items.DIAMOND_PICKAXE) == 1, "worker lost the pickaxe");
+			helper.assertTrue(count(worker, Items.COBBLESTONE) == 0, "worker still holds cobblestone");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositNamedToolDeposits(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIAMOND_PICKAXE));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER),
+				Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIAMOND_PICKAXE))));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(chest.countItem(Items.DIAMOND_PICKAXE) == 1, "pickaxe is not in the chest");
+			helper.assertTrue(count(worker, Items.DIAMOND_PICKAXE) == 0, "worker still holds the pickaxe");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void depositAllOnlyToolsSucceeds(GameTestHelper helper) {
+		layFloor(helper);
+		ChestBlockEntity chest = placeChest(helper, CONTAINER);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.insertOrDrop(new ItemStack(Items.DIAMOND_PICKAXE));
+		worker.tasks().enqueue(new DepositTask(helper.absolutePos(CONTAINER), Optional.empty()));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			String note = ((TaskOutcome.Succeeded) outcomes.get(0).outcome()).note();
+			helper.assertTrue(note.startsWith("nothing to deposit, kept 1"), "unexpected note: " + note);
+			helper.assertTrue(chest.isEmpty(), "chest is not empty");
+			helper.assertTrue(count(worker, Items.DIAMOND_PICKAXE) == 1, "worker lost the pickaxe");
+		});
 	}
 
 	/** Saves {@code worker} and loads the result into a new, unspawned worker. */
