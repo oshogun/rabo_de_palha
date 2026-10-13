@@ -32,3 +32,17 @@ headlessly from the terminal.
 - Cap fix loops at 2 iterations, then ask the user.
 - Run `/compact` between large phases of long sessions.
 <!-- carcara:end -->
+
+## Project
+
+- Stack: Fabric (Loader 0.19.5, Fabric API 0.162.0+26.3, Loom 1.18), Minecraft 26.3
+  with Mojang names (no Yarn), Java 25, Gradle 9.7.1 via the wrapper.
+- Mod id `rabodepalha`; base package `io.github.oshogun.rabodepalha`.
+- Source sets: `src/main` (common), `src/client` (client-only), `src/test`
+  (JUnit 5 via fabric-loader-junit), `src/gametest` (Fabric GameTest test mod
+  `rabodepalha-test`, `fabric-gametest` entrypoint).
+- Verify changes with:
+  - `./gradlew build` (compiles, runs unit tests, jar in `build/libs/`)
+  - `./gradlew test` (JUnit unit tests)
+  - `./gradlew runGametest` (headless server GameTests; exits non-zero on failure)
+- Never launch `runClient` from an agent: it opens a game window.

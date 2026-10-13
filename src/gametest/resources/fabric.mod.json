@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "rabodepalha-test",
+	"version": "1.0.0",
+	"name": "Rabo-de-palha GameTests",
+	"license": "All-Rights-Reserved",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": [
+			"io.github.oshogun.rabodepalha.gametest.RaboDePalhaGameTest"
+		]
+	},
+	"depends": {
+		"rabodepalha": "*"
+	}
+}

@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "rabodepalha",
+	"version": "${version}",
+	"name": "Rabo-de-palha",
+	"description": "A colony-management game built on top of Minecraft's world.",
+	"authors": [
+		"oshogun"
+	],
+	"license": "All-Rights-Reserved",
+	"icon": "assets/rabodepalha/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"io.github.oshogun.rabodepalha.RaboDePalha"
+		],
+		"client": [
+			"io.github.oshogun.rabodepalha.client.RaboDePalhaClient"
+		]
+	},
+	"mixins": [
+		"rabodepalha.mixins.json",
+		{
+			"config": "rabodepalha.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
