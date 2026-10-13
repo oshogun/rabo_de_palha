@@ -22,6 +22,14 @@ public final class RtsCameraMath {
 	public static final double ZOOM_STEP = 4.0;
 	/** Downward pitch of the angled view, in degrees. */
 	public static final float DEFAULT_PITCH = 60.0f;
+	/** Shallowest pitch the camera can tilt to, in degrees. */
+	public static final float MIN_PITCH = 30.0f;
+	/** Steepest pitch the camera can tilt to: straight down. */
+	public static final float MAX_PITCH = 90.0f;
+	/** Degrees of pitch tilted per client tick while a tilt key is held. */
+	public static final float TILT_STEP_DEG = 2.0f;
+	/** Degrees of pitch tilted per pixel of vertical middle-drag. */
+	public static final float DRAG_TILT_DEG_PER_PIXEL = 0.3f;
 	/** Degrees of yaw turned per client tick while Q or E is held. */
 	public static final float ROTATE_STEP_DEG = 4.0f;
 	/** Degrees of yaw turned per pixel of middle-drag. */
@@ -130,6 +138,56 @@ public final class RtsCameraMath {
 			wrapped += 360.0f;
 		}
 		return wrapped;
+	}
+
+	/**
+	 * Clamps a pitch to [{@link #MIN_PITCH}, {@link #MAX_PITCH}]. Positive pitch looks down and 90 is
+	 * straight down; NaN gives {@link #DEFAULT_PITCH}.
+	 */
+	public static float clampPitch(double pitchDeg) {
+		if (Double.isNaN(pitchDeg)) {
+			return DEFAULT_PITCH;
+		}
+		return (float) clamp(pitchDeg, MIN_PITCH, MAX_PITCH);
+	}
+
+	/** Pitch after tilting by {@code deltaDeg}; positive tilts towards straight down. */
+	public static float tilt(float pitchDeg, double deltaDeg) {
+		return clampPitch(pitchDeg + deltaDeg);
+	}
+
+	/*
+	 * Orbit. Rotating, tilting and zooming keep the ground point at the screen centre (the pivot) fixed
+	 * and move the camera around it, as RTS games do. Rotating in place would swing the view across
+	 * lookAtDistance (about 140 blocks at 30 degrees and height 80); at 90 degrees the two coincide.
+	 * The pivot lies on a flat plane at the camera's ground reference, {@code height} below it, so it
+	 * only approximates the true screen-centre point on uneven terrain. Pitches are clamped here, so
+	 * results are always finite.
+	 */
+
+	/** Ground point at the screen centre for a camera at ({@code camX}, {@code camZ}), on flat ground. */
+	public static Pan lookAtPoint(double camX, double camZ, double height, float yawDeg, float pitchDeg) {
+		double d = lookAtDistance(height, clampPitch(pitchDeg));
+		double yaw = Math.toRadians(yawDeg);
+		return new Pan(camX - Math.sin(yaw) * d, camZ + Math.cos(yaw) * d);
+	}
+
+	/** Camera position whose screen centre looks at ({@code pivotX}, {@code pivotZ}); inverse of {@link #lookAtPoint}. */
+	public static Pan orbitPosition(double pivotX, double pivotZ, double height, float yawDeg, float pitchDeg) {
+		double d = lookAtDistance(height, clampPitch(pitchDeg));
+		double yaw = Math.toRadians(yawDeg);
+		return new Pan(pivotX + Math.sin(yaw) * d, pivotZ - Math.cos(yaw) * d);
+	}
+
+	/**
+	 * Camera displacement that keeps the pivot fixed when the pose changes from (height0, yaw0, pitch0)
+	 * to (height1, yaw1, pitch1). It does not depend on the absolute position, so it can be accumulated.
+	 */
+	public static Pan orbitShift(double height0, float yaw0, float pitch0, double height1, float yaw1,
+			float pitch1) {
+		Pan p0 = lookAtPoint(0.0, 0.0, height0, yaw0, pitch0);
+		Pan p1 = lookAtPoint(0.0, 0.0, height1, yaw1, pitch1);
+		return new Pan(p0.x() - p1.x(), p0.z() - p1.z());
 	}
 
 	/** Radius of the ground sample, in blocks per block of camera height. */

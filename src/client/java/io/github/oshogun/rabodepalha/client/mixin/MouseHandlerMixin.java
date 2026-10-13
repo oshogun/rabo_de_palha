@@ -22,16 +22,14 @@ import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
  * the left button selects workers (click or box drag), the right button orders them, the wheel zooms instead of changing the
- * spectator fly speed, and dragging with the middle button rotates the camera.
+ * spectator fly speed, and dragging with the middle button rotates (horizontally) and tilts (vertically)
+ * the camera. The drag uses cursor-position deltas rather than vanilla's accumulated movement.
  */
 @Mixin(MouseHandler.class)
 abstract class MouseHandlerMixin {
 	@Shadow
 	@Final
 	private Minecraft minecraft;
-
-	@Shadow
-	private double accumulatedDX;
 
 	@Shadow
 	private double xpos;
@@ -41,6 +39,12 @@ abstract class MouseHandlerMixin {
 
 	@Unique
 	private boolean rabodepalha$middleDragging;
+
+	@Unique
+	private double rabodepalha$dragLastX;
+
+	@Unique
+	private double rabodepalha$dragLastY;
 
 	@Unique
 	private boolean rabodepalha$rtsWorldInput(long handle) {
@@ -61,6 +65,8 @@ abstract class MouseHandlerMixin {
 		}
 		if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_MIDDLE) {
 			this.rabodepalha$middleDragging = action == 1;
+			this.rabodepalha$dragLastX = this.xpos;
+			this.rabodepalha$dragLastY = this.ypos;
 		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_LEFT) {
 			if (action == 1) {
 				RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
@@ -87,13 +93,23 @@ abstract class MouseHandlerMixin {
 
 	@Inject(method = "handleAccumulatedMovement", at = @At("HEAD"))
 	private void rabodepalha$rtsDragRotate(CallbackInfo ci) {
-		if (!RtsClient.isActive() || this.minecraft.gui.screen() != null) {
+		if (!RtsClient.isActive() || this.minecraft.gui.screen() != null || this.minecraft.gui.overlay() != null) {
 			this.rabodepalha$middleDragging = false;
 			return;
 		}
 		RtsSelectionClient.onDragMove(this.xpos, this.ypos);
-		if (this.rabodepalha$middleDragging && this.minecraft.isWindowActive() && this.accumulatedDX != 0.0) {
-			RtsClient.rotate((float) (this.accumulatedDX * RtsCameraMath.DRAG_ROTATE_DEG_PER_PIXEL));
+		if (this.rabodepalha$middleDragging && this.minecraft.isWindowActive()) {
+			double dx = this.xpos - this.rabodepalha$dragLastX;
+			double dy = this.ypos - this.rabodepalha$dragLastY;
+			// Same sense as mouselook: drag right turns right, drag down looks further down.
+			if (dx != 0.0) {
+				RtsClient.rotate((float) (dx * RtsCameraMath.DRAG_ROTATE_DEG_PER_PIXEL));
+			}
+			if (dy != 0.0) {
+				RtsClient.tilt((float) (dy * RtsCameraMath.DRAG_TILT_DEG_PER_PIXEL));
+			}
 		}
+		this.rabodepalha$dragLastX = this.xpos;
+		this.rabodepalha$dragLastY = this.ypos;
 	}
 }

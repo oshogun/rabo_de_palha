@@ -4,6 +4,8 @@
   "key.rabodepalha.rts_toggle": "Toggle RTS mode",
   "key.rabodepalha.rts_rotate_left": "Rotate RTS camera left",
   "key.rabodepalha.rts_rotate_right": "Rotate RTS camera right",
+  "key.rabodepalha.rts_tilt_up": "Tilt camera up (top-down)",
+  "key.rabodepalha.rts_tilt_down": "Tilt camera down (toward horizon)",
   "key.rabodepalha.rts_mine_order": "RTS mine order (hold + right-click)",
   "key.rabodepalha.rts_place_order": "RTS place order (hold + right-click)",
   "key.rabodepalha.rts_lock_height": "Lock camera height",

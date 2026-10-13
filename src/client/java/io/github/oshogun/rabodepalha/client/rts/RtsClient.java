@@ -35,6 +35,8 @@ public final class RtsClient {
 	public static KeyMapping toggleKey;
 	public static KeyMapping rotateLeftKey;
 	public static KeyMapping rotateRightKey;
+	public static KeyMapping tiltUpKey;
+	public static KeyMapping tiltDownKey;
 	/** Held while right-clicking to give a mine order instead of a move order. */
 	public static KeyMapping mineOrderKey;
 	/** Held while right-clicking to place the selected hotbar block. */
@@ -49,6 +51,10 @@ public final class RtsClient {
 	private static boolean active;
 	private static double height = RtsCameraMath.DEFAULT_HEIGHT;
 	private static float yaw;
+	private static float pitch = RtsCameraMath.DEFAULT_PITCH;
+	/** Orbit displacement from rotating, tilting and zooming since the last tick, applied with the pan. */
+	private static double pendingDX;
+	private static double pendingDZ;
 	/** Smoothed camera height; keeps the last ground reference while the chunks below are not loaded. */
 	private static RtsCameraMath.HeightState heightState = RtsCameraMath.HeightState.UNSET;
 	private static long lastTickNanos;
@@ -69,6 +75,10 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_Q, CATEGORY));
 		rotateRightKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_rotate_right",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_E, CATEGORY));
+		tiltUpKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_tilt_up",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_X, CATEGORY));
+		tiltDownKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_tilt_down",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_Z, CATEGORY));
 		mineOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_mine_order",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_LALT, CATEGORY));
 		placeOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_place_order",
@@ -88,14 +98,30 @@ public final class RtsClient {
 		return active;
 	}
 
-	/** Zooms by {@code wheelDelta} notches; scrolling up lowers the camera. */
+	/** Zooms by {@code wheelDelta} notches towards the screen centre; scrolling up lowers the camera. */
 	public static void zoom(double wheelDelta) {
-		height = RtsCameraMath.zoom(height, wheelDelta);
+		double newHeight = RtsCameraMath.zoom(height, wheelDelta);
+		addOrbitShift(RtsCameraMath.orbitShift(height, yaw, pitch, newHeight, yaw, pitch));
+		height = newHeight;
 	}
 
-	/** Turns the camera by {@code degrees} of yaw. */
+	/** Turns the camera by {@code degrees} of yaw around the screen centre. */
 	public static void rotate(float degrees) {
-		yaw = RtsCameraMath.wrapYaw(yaw + degrees);
+		float newYaw = RtsCameraMath.wrapYaw(yaw + degrees);
+		addOrbitShift(RtsCameraMath.orbitShift(height, yaw, pitch, height, newYaw, pitch));
+		yaw = newYaw;
+	}
+
+	/** Tilts the camera by {@code degrees} of pitch around the screen centre; positive looks further down. */
+	public static void tilt(float degrees) {
+		float newPitch = RtsCameraMath.tilt(pitch, degrees);
+		addOrbitShift(RtsCameraMath.orbitShift(height, yaw, pitch, height, yaw, newPitch));
+		pitch = newPitch;
+	}
+
+	private static void addOrbitShift(RtsCameraMath.Pan shift) {
+		pendingDX += shift.x();
+		pendingDZ += shift.z();
 	}
 
 	private static void setActive(Minecraft client, boolean value) {
@@ -107,7 +133,8 @@ public final class RtsClient {
 		if (value) {
 			height = RtsCameraMath.DEFAULT_HEIGHT;
 			resetHeight();
-			yaw =client.player != null ? RtsCameraMath.wrapYaw(client.player.getYRot()) : 0.0f;
+			pitch = RtsCameraMath.DEFAULT_PITCH;
+			yaw = client.player != null ? RtsCameraMath.wrapYaw(client.player.getYRot()) : 0.0f;
 			client.mouseHandler.releaseMouse();
 		} else if (client.gui.screen() == null) {
 			client.mouseHandler.grabMouse();
@@ -118,6 +145,7 @@ public final class RtsClient {
 		active = false;
 		RtsSelectionClient.clear();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
+		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
 	}
 
@@ -126,6 +154,8 @@ public final class RtsClient {
 		lastTickNanos = 0L;
 		heightLocked = false;
 		lastX = Double.NaN;
+		pendingDX = 0.0;
+		pendingDZ = 0.0;
 	}
 
 	private static void tick(Minecraft client) {
@@ -160,14 +190,22 @@ public final class RtsClient {
 			if (rotateRightKey.isDown()) {
 				rotate(RtsCameraMath.ROTATE_STEP_DEG);
 			}
+			if (tiltUpKey.isDown()) {
+				tilt(RtsCameraMath.TILT_STEP_DEG);
+			}
+			if (tiltDownKey.isDown()) {
+				tilt(-RtsCameraMath.TILT_STEP_DEG);
+			}
 		}
 
 		RtsCameraMath.PanInput input = noScreen ? panInput(client) : RtsCameraMath.PanInput.NONE;
 		RtsCameraMath.Pan pan = RtsCameraMath.panVector(input.forward(), input.right(), yaw,
 				RtsCameraMath.panSpeedForHeight(height));
 
-		double x = player.getX() + pan.x();
-		double z = player.getZ() + pan.z();
+		double x = player.getX() + pan.x() + pendingDX;
+		double z = player.getZ() + pan.z() + pendingDZ;
+		pendingDX = 0.0;
+		pendingDZ = 0.0;
 		double[] ground = sampleGround(client.level, x, z);
 		double reference = ground[0];
 		if (!heightState.isSet() && Double.isNaN(reference)) {
@@ -193,7 +231,7 @@ public final class RtsClient {
 		player.setPos(x, y, z);
 		player.setYRot(yaw);
 		player.setYHeadRot(yaw);
-		player.setXRot(RtsCameraMath.DEFAULT_PITCH);
+		player.setXRot(pitch);
 		lastX = x;
 		lastY = y;
 		lastZ = z;
@@ -207,7 +245,7 @@ public final class RtsClient {
 	 * either is NaN when nothing sampled is loaded.
 	 */
 	private static double[] sampleGround(Level level, double x, double z) {
-		List<RtsCameraMath.Offset> offsets = RtsCameraMath.sampleOffsets(height, yaw, RtsCameraMath.DEFAULT_PITCH);
+		List<RtsCameraMath.Offset> offsets = RtsCameraMath.sampleOffsets(height, yaw, pitch);
 		double[] reference = new double[offsets.size()];
 		double[] weights = new double[offsets.size()];
 		double[] highest = new double[offsets.size()];

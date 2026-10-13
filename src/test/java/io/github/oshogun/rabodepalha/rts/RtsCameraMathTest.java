@@ -301,4 +301,90 @@ class RtsCameraMathTest {
 		assertEquals(100.0, RtsCameraMath.maxFinite(values), EPS);
 		assertTrue(Double.isNaN(RtsCameraMath.maxFinite(new double[] {Double.NaN})));
 	}
+
+	@Test
+	void clampPitchBounds() {
+		assertEquals(30.0, RtsCameraMath.clampPitch(10.0), EPS);
+		assertEquals(30.0, RtsCameraMath.clampPitch(30.0), EPS);
+		assertEquals(45.0, RtsCameraMath.clampPitch(45.0), EPS);
+		assertEquals(90.0, RtsCameraMath.clampPitch(90.0), EPS);
+		assertEquals(90.0, RtsCameraMath.clampPitch(120.0), EPS);
+		assertEquals(RtsCameraMath.DEFAULT_PITCH, RtsCameraMath.clampPitch(Double.NaN), EPS);
+	}
+
+	@Test
+	void tiltAddsAndClamps() {
+		assertEquals(65.0, RtsCameraMath.tilt(60.0f, 5.0), EPS);
+		assertEquals(55.0, RtsCameraMath.tilt(60.0f, -5.0), EPS);
+		assertEquals(90.0, RtsCameraMath.tilt(88.0f, 5.0), EPS);
+		assertEquals(30.0, RtsCameraMath.tilt(32.0f, -5.0), EPS);
+	}
+
+	@Test
+	void lookAtPointMatchesLookAtDistance() {
+		double d = 24.0 / Math.tan(Math.toRadians(60.0));
+		RtsCameraMath.Pan south = RtsCameraMath.lookAtPoint(10.0, 20.0, 24.0, 0.0f, 60.0f);
+		RtsCameraMath.Pan west = RtsCameraMath.lookAtPoint(10.0, 20.0, 24.0, 90.0f, 60.0f);
+
+		assertEquals(10.0, south.x(), EPS);
+		assertEquals(20.0 + d, south.z(), EPS);
+		assertEquals(10.0 - d, west.x(), EPS);
+		assertEquals(20.0, west.z(), EPS);
+	}
+
+	@Test
+	void orbitPositionRoundTrips() {
+		float[] pitches = {30.0f, 45.0f, 60.0f, 90.0f};
+		double[] heights = {6.0, 24.0, 80.0};
+		for (float yaw = -180.0f; yaw <= 180.0f; yaw += 45.0f) {
+			for (float pitch : pitches) {
+				for (double height : heights) {
+					RtsCameraMath.Pan cam = RtsCameraMath.orbitPosition(5.0, -7.0, height, yaw, pitch);
+					RtsCameraMath.Pan pivot = RtsCameraMath.lookAtPoint(cam.x(), cam.z(), height, yaw, pitch);
+
+					assertEquals(5.0, pivot.x(), 1e-6);
+					assertEquals(-7.0, pivot.z(), 1e-6);
+				}
+			}
+		}
+	}
+
+	@Test
+	void orbitAtStraightDownIsRotateInPlace() {
+		RtsCameraMath.Pan shift = RtsCameraMath.orbitShift(80.0, 0.0f, 90.0f, 80.0, 135.0f, 90.0f);
+
+		assertEquals(0.0, shift.x(), EPS);
+		assertEquals(0.0, shift.z(), EPS);
+	}
+
+	@Test
+	void orbitShiftIdentityIsZero() {
+		assertTrue(RtsCameraMath.orbitShift(24.0, 30.0f, 60.0f, 24.0, 30.0f, 60.0f).isZero());
+	}
+
+	@Test
+	void rotateKeepsPivotFixed() {
+		assertPivotFixed(24.0, 10.0f, 45.0f, 24.0, 100.0f, 45.0f);
+	}
+
+	@Test
+	void tiltKeepsPivotFixed() {
+		assertPivotFixed(40.0, -30.0f, 60.0f, 40.0, -30.0f, 30.0f);
+	}
+
+	@Test
+	void zoomKeepsPivotFixed() {
+		assertPivotFixed(24.0, 70.0f, 35.0f, 60.0, 70.0f, 35.0f);
+	}
+
+	private static void assertPivotFixed(double h0, float y0, float p0, double h1, float y1, float p1) {
+		double x = 12.0;
+		double z = -3.0;
+		RtsCameraMath.Pan before = RtsCameraMath.lookAtPoint(x, z, h0, y0, p0);
+		RtsCameraMath.Pan shift = RtsCameraMath.orbitShift(h0, y0, p0, h1, y1, p1);
+		RtsCameraMath.Pan after = RtsCameraMath.lookAtPoint(x + shift.x(), z + shift.z(), h1, y1, p1);
+
+		assertEquals(before.x(), after.x(), 1e-6);
+		assertEquals(before.z(), after.z(), 1e-6);
+	}
 }

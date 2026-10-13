@@ -14,7 +14,7 @@ class RtsPickMathTest {
 	private static final double FOV = 70.0;
 	private static final float[][] ANGLES = {
 			{0.0f, 0.0f}, {90.0f, 0.0f}, {37.0f, RtsCameraMath.DEFAULT_PITCH}, {-150.0f, 30.0f},
-			{180.0f, RtsCameraMath.DEFAULT_PITCH}};
+			{180.0f, RtsCameraMath.DEFAULT_PITCH}, {0.0f, RtsCameraMath.MAX_PITCH}, {45.0f, RtsCameraMath.MAX_PITCH}};
 
 	private static double[] forward(float yawDeg, float pitchDeg) {
 		double yaw = Math.toRadians(yawDeg);
@@ -60,6 +60,15 @@ class RtsPickMathTest {
 				assertEquals(px[1], p.y(), 1e-4);
 			}
 		}
+	}
+
+	@Test
+	void centreRayAtStraightDownPointsDown() {
+		double[] dir = RtsPickMath.cursorRayDir(W / 2, H / 2, W, H, FOV, 45.0f, RtsCameraMath.MAX_PITCH);
+
+		assertEquals(0.0, dir[0], EPS);
+		assertEquals(-1.0, dir[1], EPS);
+		assertEquals(0.0, dir[2], EPS);
 	}
 
 	@Test
