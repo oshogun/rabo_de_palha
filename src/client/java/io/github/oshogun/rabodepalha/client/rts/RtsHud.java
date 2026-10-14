@@ -1,5 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.List;
+
 import com.mojang.blaze3d.platform.Window;
 
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -7,23 +9,30 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
+import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
 
 /**
  * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
- * would use, what right-click would do at the cursor, and the selection box while dragging.
+ * would use, what the armed command or a right-click would do at the cursor, the selection box while
+ * dragging, and the command bar with its tooltips.
  */
 public final class RtsHud {
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
 	private static final int BOX_FILL_COLOR = 0x3380FF80;
 	private static final int BOX_BORDER_COLOR = 0xFF80FF80;
 	private static final int MARGIN = 4;
+	private static final int BUTTON_COLOR = 0xB0000000;
+	private static final int BUTTON_HOVER_COLOR = 0xB0505050;
+	private static final int BUTTON_ARMED_COLOR = 0xFFFFD84A;
 
 	private RtsHud() {
 	}
@@ -81,12 +90,18 @@ public final class RtsHud {
 				y += lineHeight;
 			}
 		}
+		int hovered = RtsCommandClient.hoveredButton();
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
-		if (hover != null) {
-			// What right-click would do; an invalid hint's key already states the reason.
-			RtsOrderHint.Hint hint = RtsOrderHintClient.current(hover);
-			graphics.text(client.font, RtsOrderHintClient.text(hint, hover), MARGIN, y,
-					hint.valid() ? OK_COLOR : HINT_INVALID_COLOR);
+		if (hover != null && hovered < 0) {
+			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
+			// already states the reason.
+			RtsOrderHint.Hint hint = RtsCommandClient.currentHint(hover);
+			Component text = RtsOrderHintClient.text(hint, hover);
+			RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+			if (armed != null) {
+				text = Component.empty().append(armed.displayName()).append(": ").append(text);
+			}
+			graphics.text(client.font, text, MARGIN, y, hint.valid() ? OK_COLOR : HINT_INVALID_COLOR);
 		}
 
 		RtsScreenRect rect = RtsSelectionClient.currentDragRect();
@@ -100,6 +115,39 @@ public final class RtsHud {
 			int y1 = (int) Math.ceil(rect.maxY() / scale);
 			graphics.fill(x0, y0, x1, y1, BOX_FILL_COLOR);
 			graphics.outline(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), BOX_BORDER_COLOR);
+		}
+
+		extractCommandBar(graphics, client, hovered);
+	}
+
+	/** Draws the command bar at the bottom centre, and the hovered button's tooltip on top of it. */
+	private static void extractCommandBar(GuiGraphicsExtractor graphics, Minecraft client, int hovered) {
+		List<RtsCommands.RtsCommand> commands = RtsCommands.COMMANDS;
+		Window window = client.getWindow();
+		List<RtsCommandBar.Rect> buttons = RtsCommandBar.layout(commands.size(), window.getGuiScaledWidth(),
+				window.getGuiScaledHeight());
+		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+		for (int i = 0; i < buttons.size(); i++) {
+			RtsCommandBar.Rect button = buttons.get(i);
+			RtsCommands.RtsCommand command = commands.get(i);
+			graphics.fill(button.x(), button.y(), button.x() + button.w(), button.y() + button.h(),
+					i == hovered ? BUTTON_HOVER_COLOR : BUTTON_COLOR);
+			if (command == armed) {
+				graphics.outline(button.x(), button.y(), button.w(), button.h(), BUTTON_ARMED_COLOR);
+			}
+			// Item icons are 16x16.
+			graphics.item(command.icon().get(), button.x() + (button.w() - 16) / 2, button.y() + (button.h() - 16) / 2);
+		}
+		if (hovered >= 0 && hovered < RtsClient.commandKeys.size()) {
+			// Tooltips set "for next frame" are only drawn by screens, so the HUD draws its own, above the icons.
+			graphics.nextStratum();
+			Component tooltip = Component.empty().append(commands.get(hovered).displayName()).append(" (")
+					.append(RtsClient.commandKeys.get(hovered).getTranslatedKeyMessage()).append(")");
+			double scale = window.getGuiScale();
+			int mouseX = (int) RtsCommandBar.toGui(client.mouseHandler.xpos(), scale);
+			int mouseY = (int) RtsCommandBar.toGui(client.mouseHandler.ypos(), scale);
+			graphics.tooltip(client.font, List.of(ClientTooltipComponent.create(tooltip.getVisualOrderText())), mouseX,
+					mouseY, DefaultTooltipPositioner.INSTANCE, null, false);
 		}
 	}
 }

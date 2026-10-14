@@ -7,12 +7,17 @@ import java.util.Locale;
 
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
+import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
+import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+
+import org.jspecify.annotations.Nullable;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
@@ -64,7 +69,40 @@ public final class RtsOrders {
 	/** As {@link #handle(ServerPlayer, RtsOrderPayload, PermissionSet)}, with explicit distance limits (for tests). */
 	public static Result handle(ServerPlayer player, RtsOrderPayload payload, PermissionSet permissions,
 			double maxTargetDistance, double maxWorkerDistance) {
-		Result result = apply(player, payload, permissions, maxTargetDistance, maxWorkerDistance);
+		return sendFeedback(player, apply(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's stop order. */
+	public static Result handleStop(ServerPlayer player, RtsStopPayload payload) {
+		return handleStop(player, payload, player.permissions());
+	}
+
+	/**
+	 * Clears the queues and current tasks of the given workers, like {@code /rdp clear}, then sends the feedback.
+	 * Any selected worker that is loaded and alive can be stopped, with no distance limit. Workers in unloaded
+	 * chunks do not resolve by id and count as unknown.
+	 */
+	public static Result handleStop(ServerPlayer player, RtsStopPayload payload, PermissionSet permissions) {
+		return sendFeedback(player, applyStop(player, payload, permissions));
+	}
+
+	/** Entry point for the client's spawn order. */
+	public static Result handleSpawn(ServerPlayer player, RtsSpawnPayload payload) {
+		return handleSpawn(player, payload, player.permissions());
+	}
+
+	/** Spawns a worker commanded by the player on top of the clicked block, then sends the feedback. */
+	public static Result handleSpawn(ServerPlayer player, RtsSpawnPayload payload, PermissionSet permissions) {
+		return handleSpawn(player, payload, permissions, MAX_TARGET_DISTANCE);
+	}
+
+	/** As {@link #handleSpawn(ServerPlayer, RtsSpawnPayload, PermissionSet)}, with an explicit distance limit (for tests). */
+	public static Result handleSpawn(ServerPlayer player, RtsSpawnPayload payload, PermissionSet permissions,
+			double maxTargetDistance) {
+		return sendFeedback(player, applySpawn(player, payload, permissions, maxTargetDistance));
+	}
+
+	private static Result sendFeedback(ServerPlayer player, Result result) {
 		if (ServerPlayNetworking.canSend(player, RtsOrderFeedbackPayload.TYPE)) {
 			ServerPlayNetworking.send(player, new RtsOrderFeedbackPayload(result.ok(), result.message()));
 		}
@@ -82,11 +120,9 @@ public final class RtsOrders {
 
 	private static Result apply(ServerPlayer player, RtsOrderPayload payload, PermissionSet permissions,
 			double maxTargetDistance, double maxWorkerDistance) {
-		if (!RtsMode.canEnter(permissions)) {
-			return reject("rabodepalha.rts.order.no_permission");
-		}
-		if (!RtsMode.isActive(player)) {
-			return reject("rabodepalha.rts.order.not_rts");
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
 		}
 		List<Integer> ids = payload.workerIds();
 		if (ids.isEmpty() || ids.size() > MAX_IDS) {
@@ -96,11 +132,9 @@ public final class RtsOrders {
 		ServerLevel level = player.level();
 		RtsOrderKind kind = payload.kind();
 		BlockPos target = target(kind, payload.clicked(), payload.face());
-		if (player.getEyePosition().distanceToSqr(Vec3.atCenterOf(target)) > maxTargetDistance * maxTargetDistance) {
-			return reject("rabodepalha.rts.order.target_too_far");
-		}
-		if (!level.isLoaded(target)) {
-			return reject("rabodepalha.rts.order.not_loaded");
+		Result targetProblem = checkTarget(player, level, target, maxTargetDistance);
+		if (targetProblem != null) {
+			return targetProblem;
 		}
 
 		BlockState placeState = null;
@@ -159,6 +193,101 @@ public final class RtsOrders {
 		}
 		return new Result(false, valid.size(),
 				Component.translatable("rabodepalha.rts.order.partial", applied, rejected, unknown, tooFar));
+	}
+
+	private static Result applyStop(ServerPlayer player, RtsStopPayload payload, PermissionSet permissions) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+
+		ServerLevel level = player.level();
+		List<WorkerEntity> valid = new ArrayList<>();
+		int unknown = 0;
+		int notLoaded = 0;
+		for (int id : new LinkedHashSet<>(ids)) {
+			if (!(level.getEntity(id) instanceof WorkerEntity worker) || !worker.isAlive()) {
+				unknown++;
+			} else if (!level.isLoaded(worker.blockPosition())) {
+				notLoaded++;
+			} else {
+				valid.add(worker);
+			}
+		}
+		if (valid.isEmpty()) {
+			MutableComponent message = Component.empty();
+			String separator = "";
+			if (unknown > 0) {
+				message.append(Component.translatable("rabodepalha.rts.order.unknown_worker", unknown));
+				separator = ", ";
+			}
+			if (notLoaded > 0) {
+				message.append(separator).append(Component.translatable("rabodepalha.rts.order.worker_not_loaded", notLoaded));
+			}
+			return new Result(false, 0, message);
+		}
+
+		for (WorkerEntity worker : valid) {
+			worker.tasks().clear(worker, TaskOutcome.Cancelled.Cause.CLEARED);
+		}
+		Component stopped = Component.translatable("rabodepalha.rts.order.stopped", valid.size());
+		int rejected = unknown + notLoaded;
+		if (rejected == 0) {
+			return new Result(true, valid.size(), stopped);
+		}
+		return new Result(false, valid.size(), Component.translatable("rabodepalha.rts.order.stop_partial",
+				stopped, rejected, unknown, notLoaded));
+	}
+
+	private static Result applySpawn(ServerPlayer player, RtsSpawnPayload payload, PermissionSet permissions,
+			double maxTargetDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		ServerLevel level = player.level();
+		BlockPos spot = payload.clicked().above();
+		Result targetProblem = checkTarget(player, level, spot, maxTargetDistance);
+		if (targetProblem != null) {
+			return targetProblem;
+		}
+		Vec3 feet = WorkerSpawner.feetOn(spot);
+		if (!WorkerSpawner.hasRoom(level, feet)) {
+			return reject("rabodepalha.rts.order.no_room");
+		}
+		WorkerEntity worker = WorkerSpawner.spawn(level, feet, player.getYRot(), player.getUUID());
+		if (worker == null) {
+			return reject("rabodepalha.rts.order.spawn_failed");
+		}
+		return new Result(true, 1,
+				Component.translatable("rabodepalha.rts.order.spawned", spot.getX(), spot.getY(), spot.getZ()));
+	}
+
+	/** Rejects players who may not give orders or are not in RTS mode; null when they may. */
+	private static @Nullable Result checkPlayer(ServerPlayer player, PermissionSet permissions) {
+		if (!RtsMode.canEnter(permissions)) {
+			return reject("rabodepalha.rts.order.no_permission");
+		}
+		if (!RtsMode.isActive(player)) {
+			return reject("rabodepalha.rts.order.not_rts");
+		}
+		return null;
+	}
+
+	/** Rejects targets too far from the player's eyes or not loaded; null when the target is fine. */
+	private static @Nullable Result checkTarget(ServerPlayer player, ServerLevel level, BlockPos target,
+			double maxTargetDistance) {
+		if (player.getEyePosition().distanceToSqr(Vec3.atCenterOf(target)) > maxTargetDistance * maxTargetDistance) {
+			return reject("rabodepalha.rts.order.target_too_far");
+		}
+		if (!level.isLoaded(target)) {
+			return reject("rabodepalha.rts.order.not_loaded");
+		}
+		return null;
 	}
 
 	private static Task<WorkerEntity> newTask(RtsOrderKind kind, BlockPos target, BlockState placeState) {

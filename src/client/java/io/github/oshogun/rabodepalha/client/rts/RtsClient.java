@@ -37,10 +37,8 @@ public final class RtsClient {
 	public static KeyMapping rotateRightKey;
 	public static KeyMapping tiltUpKey;
 	public static KeyMapping tiltDownKey;
-	/** Held while right-clicking to give a mine order instead of a move order. */
-	public static KeyMapping mineOrderKey;
-	/** Held while right-clicking to place the selected hotbar block. */
-	public static KeyMapping placeOrderKey;
+	/** Hotkeys of the command bar, in the order of {@link RtsCommands#COMMANDS}. */
+	public static List<KeyMapping> commandKeys = List.of();
 
 	/** Toggles freezing the camera height while panning. */
 	public static KeyMapping lockHeightKey;
@@ -79,12 +77,12 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_X, CATEGORY));
 		tiltDownKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_tilt_down",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_Z, CATEGORY));
-		mineOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_mine_order",
-				InputConstants.Type.KEYBOARD, InputConstants.KEY_LALT, CATEGORY));
-		placeOrderKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_place_order",
-				InputConstants.Type.KEYBOARD, InputConstants.KEY_LCONTROL, CATEGORY));
 		lockHeightKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_lock_height",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_H, CATEGORY));
+		commandKeys = RtsCommands.COMMANDS.stream()
+				.map(command -> KeyMappingHelper.registerKeyMapping(new KeyMapping(command.keyMappingName(),
+						InputConstants.Type.KEYBOARD, command.defaultKey(), CATEGORY)))
+				.toList();
 
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
@@ -132,6 +130,7 @@ public final class RtsClient {
 		}
 		active = value;
 		RtsSelectionClient.clear();
+		RtsCommandClient.clear();
 		if (value) {
 			height = RtsCameraMath.DEFAULT_HEIGHT;
 			resetHeight();
@@ -146,6 +145,7 @@ public final class RtsClient {
 	private static void reset() {
 		active = false;
 		RtsSelectionClient.clear();
+		RtsCommandClient.clear();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
 		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
@@ -173,6 +173,8 @@ public final class RtsClient {
 			while (lockHeightKey.consumeClick()) {
 				// Drop presses made outside RTS mode.
 			}
+			dropCommandPresses();
+			RtsCommandClient.clear();
 			return;
 		}
 		while (lockHeightKey.consumeClick()) {
@@ -183,6 +185,18 @@ public final class RtsClient {
 		if (noScreen && client.mouseHandler.isMouseGrabbed()) {
 			// Something re-grabbed the cursor (focus change, closing a screen); keep it free.
 			client.mouseHandler.releaseMouse();
+		}
+
+		if (!noScreen) {
+			dropCommandPresses();
+			RtsCommandClient.clear();
+		} else {
+			for (int i = 0; i < commandKeys.size(); i++) {
+				KeyMapping key = commandKeys.get(i);
+				while (key.consumeClick()) {
+					RtsCommandClient.activate(RtsCommands.COMMANDS.get(i));
+				}
+			}
 		}
 
 		if (noScreen) {
@@ -238,6 +252,15 @@ public final class RtsClient {
 		lastY = y;
 		lastZ = z;
 		lastYaw = yaw;
+	}
+
+	/** Drops command hotkey presses made outside RTS mode or behind a screen. */
+	private static void dropCommandPresses() {
+		for (KeyMapping key : commandKeys) {
+			while (key.consumeClick()) {
+				// Discard.
+			}
+		}
 	}
 
 	/**

@@ -63,17 +63,34 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   capped, and the server skips its "moved too quickly" check for players in RTS mode only.
 - Zoom (camera height) with the mouse wheel; rotate with `Q`/`E` or middle-drag. `E` does not
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
-- Orders: with workers selected, right-click a block to send them there (move). Hold `Left Alt`
-  (rebindable) and right-click to mine it; hold `Left Ctrl` (rebindable) and right-click to place
-  the block in the selected hotbar slot (the hotbar scroll/number keys still work, and the HUD shows
-  `Place: <item>`). `Shift` appends to each worker's queue; otherwise the queue is replaced. The
-  server needs permission level 2 and rejects unknown or dead workers and targets too far away
-  (128 blocks); the HUD shows the result in green or red for a few seconds.
+- Orders: with workers selected, right-click a block to send them there (move). A command bar at
+  the bottom centre of the screen (it scales with the GUI scale) has buttons for Move, Mine, Place,
+  Stop and Spawn worker; hovering a button shows its name and hotkey. The hotkeys are `M` (Move),
+  `B` (Mine), `V` (Place), `G` (Stop) and `N` (Spawn worker), all rebindable. Clicks on the bar
+  never select or order anything behind it.
+  - Move, Mine, Place and Spawn worker arm a mode; the next left-click on a block carries it out.
+    Place uses the block in the selected hotbar slot (the hotbar scroll/number keys still work, and
+    the HUD shows `Place: <item>`). Pressing the same button or hotkey again disarms it.
+  - `Shift`-click appends to each worker's queue and keeps the mode armed for the next target;
+    otherwise the queue is replaced and the mode disarms. An invalid target keeps the mode armed
+    and shows the reason. Right-click or `Esc` disarms the mode (`Esc` disarms before it clears
+    the selection).
+  - Stop clears the selected workers' queues and current task, like `/rdp clear`. It works on
+    any loaded selected worker, with no distance limit; workers in unloaded chunks are left alone.
+  - Spawn worker puts a worker commanded by you on top of the clicked block, if there is room for
+    it there.
+  - `Left Alt` and `Left Ctrl` are no longer order modifiers (`Left Ctrl` made the camera sprint).
+
+  The server needs permission level 2 and rejects unknown or dead workers and targets too far away
+  (128 blocks); the HUD shows the result in green or red for a few
+  seconds.
 - Hover: the block under the cursor is outlined with its hit face highlighted (vanilla's crosshair
   outline is hidden), and a worker under the cursor gets a yellow box, distinct from the selection
-  glow. A hint line in the HUD says what right-click would do ("Move", "Mine <block>",
-  "Place <block>"); it is grey with the reason when the order would be refused (nothing selected,
-  mining air, no block in hand, more than 128 blocks away). Right-click shows the same reason.
+  glow. A hint line in the HUD says what a click would do: the armed mode, prefixed with its name
+  ("Mine <block>", "Place <block>", "Spawn worker"), or the right-click move when nothing is armed.
+  It is grey with the reason when the order would be refused (nothing selected, mining air, no
+  block in hand, no room to spawn, more than 128 blocks away), and hidden while the cursor is over
+  the command bar. Clicking an invalid target shows the same reason.
   The overlay uses `client/render/WorldOverlay`, which other features can reuse.
 - Logging out, dying, respawning or a server restart while in RTS mode returns the player to
   normal mode at the entry position. Using `/gamemode` also ends RTS mode.

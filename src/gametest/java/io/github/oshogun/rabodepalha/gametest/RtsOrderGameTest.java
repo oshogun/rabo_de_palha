@@ -39,14 +39,14 @@ import net.minecraft.world.level.block.Blocks;
  * are checked by their translation keys.
  */
 public class RtsOrderGameTest {
-	private static final PermissionSet LEVEL_0 = LevelBasedPermissionSet.forLevel(PermissionLevel.ALL);
-	private static final PermissionSet LEVEL_1 = LevelBasedPermissionSet.MODERATOR;
-	private static final PermissionSet LEVEL_2 = LevelBasedPermissionSet.GAMEMASTER;
+	static final PermissionSet LEVEL_0 = LevelBasedPermissionSet.forLevel(PermissionLevel.ALL);
+	static final PermissionSet LEVEL_1 = LevelBasedPermissionSet.MODERATOR;
+	static final PermissionSet LEVEL_2 = LevelBasedPermissionSet.GAMEMASTER;
 	private static final BlockPos WORKER_START = new BlockPos(2, 1, 2);
 	/** A floor block; MOVE targets the air above it. */
 	private static final BlockPos CLICKED = new BlockPos(5, 0, 5);
 
-	private static void layFloor(GameTestHelper helper) {
+	static void layFloor(GameTestHelper helper) {
 		for (int x = 0; x < 8; x++) {
 			for (int z = 0; z < 8; z++) {
 				helper.setBlock(new BlockPos(x, 0, z), Blocks.STONE);
@@ -55,7 +55,7 @@ public class RtsOrderGameTest {
 	}
 
 	/** A non-op mock player already in RTS mode. */
-	private static ServerPlayer rtsPlayer(GameTestHelper helper) {
+	static ServerPlayer rtsPlayer(GameTestHelper helper) {
 		ServerPlayer player = RtsModeGameTest.joinPlayer(helper);
 		helper.assertTrue(RtsMode.enter(player), "enter refused");
 		return player;
@@ -71,7 +71,7 @@ public class RtsOrderGameTest {
 	}
 
 	/** Every translation key in {@code message}, its siblings and its component arguments. */
-	private static List<String> keys(Component message) {
+	static List<String> keys(Component message) {
 		List<String> keys = new ArrayList<>();
 		collectKeys(message, keys);
 		return keys;
@@ -91,14 +91,14 @@ public class RtsOrderGameTest {
 		}
 	}
 
-	private static void assertResult(GameTestHelper helper, RtsOrders.Result result, boolean ok, int applied, String key) {
+	static void assertResult(GameTestHelper helper, RtsOrders.Result result, boolean ok, int applied, String key) {
 		helper.assertTrue(result.ok() == ok, "expected ok=" + ok + ", got " + result);
 		helper.assertTrue(result.applied() == applied, "expected " + applied + " applied, got " + result);
 		helper.assertTrue(keys(result.message()).contains("rabodepalha.rts.order." + key),
 				"message lacks " + key + ": " + keys(result.message()));
 	}
 
-	private static void assertUntouched(GameTestHelper helper, WorkerEntity worker) {
+	static void assertUntouched(GameTestHelper helper, WorkerEntity worker) {
 		helper.assertTrue(worker.tasks().isIdle(), "worker got tasks: " + worker.tasks().snapshot());
 		helper.assertTrue(worker.commanders().isEmpty(), "worker got commanders: " + worker.commanders());
 	}
@@ -113,7 +113,7 @@ public class RtsOrderGameTest {
 		helper.assertTrue(queue.size() == 1 && isMove(queue.get(0), pos), "expected only a move_to " + pos + ", got " + queue);
 	}
 
-	private static void finish(GameTestHelper helper, ServerPlayer player) {
+	static void finish(GameTestHelper helper, ServerPlayer player) {
 		RtsModeGameTest.leave(player);
 		helper.succeed();
 	}

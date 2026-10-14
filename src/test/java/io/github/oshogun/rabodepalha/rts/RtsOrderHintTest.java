@@ -22,50 +22,42 @@ class RtsOrderHintTest {
 
 	@Test
 	void moveIsValid() {
-		Hint hint = RtsOrderHint.evaluate(1, false, false, solid());
+		Hint hint = RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, solid());
 
 		assertEquals(new Hint("rabodepalha.rts.hint.move", true, RtsOrderKind.MOVE), hint);
 	}
 
 	@Test
 	void mineIsValid() {
-		Hint hint = RtsOrderHint.evaluate(2, false, true, solid());
+		Hint hint = RtsOrderHint.evaluate(2, RtsOrderKind.MINE, solid());
 
 		assertEquals(new Hint("rabodepalha.rts.hint.mine", true, RtsOrderKind.MINE), hint);
 	}
 
 	@Test
 	void placeIsValid() {
-		Hint hint = RtsOrderHint.evaluate(3, true, false, solid());
+		Hint hint = RtsOrderHint.evaluate(3, RtsOrderKind.PLACE, solid());
 
 		assertEquals(new Hint("rabodepalha.rts.hint.place", true, RtsOrderKind.PLACE), hint);
 	}
 
 	@Test
-	void placeWinsOverMine() {
-		Hint hint = RtsOrderHint.evaluate(1, true, true, solid());
-
-		assertEquals(RtsOrderKind.PLACE, hint.kind());
-		assertEquals("rabodepalha.rts.hint.place", hint.key());
-	}
-
-	@Test
 	void nothingSelectedIsRejected() {
-		Hint hint = RtsOrderHint.evaluate(0, false, false, solid());
+		Hint hint = RtsOrderHint.evaluate(0, RtsOrderKind.MOVE, solid());
 
 		assertEquals(new Hint("rabodepalha.rts.order.nothing_selected", false, RtsOrderKind.MOVE), hint);
 	}
 
 	@Test
 	void noBlockHitIsRejected() {
-		Hint hint = RtsOrderHint.evaluate(1, false, false, new Target(false, false, false, true, 0.0));
+		Hint hint = RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, new Target(false, false, false, true, 0.0));
 
 		assertEquals(new Hint("rabodepalha.rts.order.no_target", false, RtsOrderKind.MOVE), hint);
 	}
 
 	@Test
 	void miningAirIsRejected() {
-		Hint hint = RtsOrderHint.evaluate(1, false, true, new Target(false, true, true, true, 16.0));
+		Hint hint = RtsOrderHint.evaluate(1, RtsOrderKind.MINE, new Target(false, true, true, true, 16.0));
 
 		assertEquals(new Hint("rabodepalha.rts.order.air", false, RtsOrderKind.MINE), hint);
 	}
@@ -74,13 +66,13 @@ class RtsOrderHintTest {
 	void airOnlyMattersForMine() {
 		Target air = new Target(false, true, true, true, 16.0);
 
-		assertTrue(RtsOrderHint.evaluate(1, false, false, air).valid());
-		assertTrue(RtsOrderHint.evaluate(1, true, false, air).valid());
+		assertTrue(RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, air).valid());
+		assertTrue(RtsOrderHint.evaluate(1, RtsOrderKind.PLACE, air).valid());
 	}
 
 	@Test
 	void placeWithoutBlockIsRejected() {
-		Hint hint = RtsOrderHint.evaluate(1, true, false, new Target(false, true, false, false, 16.0));
+		Hint hint = RtsOrderHint.evaluate(1, RtsOrderKind.PLACE, new Target(false, true, false, false, 16.0));
 
 		assertEquals(new Hint("rabodepalha.rts.order.no_block", false, RtsOrderKind.PLACE), hint);
 	}
@@ -89,8 +81,8 @@ class RtsOrderHintTest {
 	void emptyHandOnlyMattersForPlace() {
 		Target emptyHand = new Target(false, true, false, false, 16.0);
 
-		assertTrue(RtsOrderHint.evaluate(1, false, false, emptyHand).valid());
-		assertTrue(RtsOrderHint.evaluate(1, false, true, emptyHand).valid());
+		assertTrue(RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, emptyHand).valid());
+		assertTrue(RtsOrderHint.evaluate(1, RtsOrderKind.MINE, emptyHand).valid());
 	}
 
 	@Test
@@ -98,9 +90,9 @@ class RtsOrderHintTest {
 		Target far = new Target(false, true, false, true, Math.nextUp(MAX_SQR));
 
 		for (Hint hint : List.of(
-				RtsOrderHint.evaluate(1, false, false, far),
-				RtsOrderHint.evaluate(1, false, true, far),
-				RtsOrderHint.evaluate(1, true, false, far))) {
+				RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, far),
+				RtsOrderHint.evaluate(1, RtsOrderKind.MINE, far),
+				RtsOrderHint.evaluate(1, RtsOrderKind.PLACE, far))) {
 			assertFalse(hint.valid());
 			assertEquals("rabodepalha.rts.order.target_too_far", hint.key());
 		}
@@ -108,7 +100,7 @@ class RtsOrderHintTest {
 
 	@Test
 	void exactlyAtLimitIsValid() {
-		Hint hint = RtsOrderHint.evaluate(1, false, false, new Target(false, true, false, true, MAX_SQR));
+		Hint hint = RtsOrderHint.evaluate(1, RtsOrderKind.MOVE, new Target(false, true, false, true, MAX_SQR));
 
 		assertTrue(hint.valid());
 	}
@@ -117,12 +109,11 @@ class RtsOrderHintTest {
 	void nothingSelectedBeatsOtherRejections() {
 		Target everythingWrong = new Target(false, false, true, false, MAX_SQR * 4);
 
-		for (boolean place : new boolean[] {false, true}) {
-			for (boolean mine : new boolean[] {false, true}) {
-				Hint hint = RtsOrderHint.evaluate(0, place, mine, everythingWrong);
-				assertFalse(hint.valid());
-				assertEquals("rabodepalha.rts.order.nothing_selected", hint.key());
-			}
+		for (RtsOrderKind kind : RtsOrderKind.values()) {
+			Hint hint = RtsOrderHint.evaluate(0, kind, everythingWrong);
+			assertFalse(hint.valid());
+			assertEquals("rabodepalha.rts.order.nothing_selected", hint.key());
+			assertEquals(kind, hint.kind());
 		}
 	}
 
@@ -139,14 +130,67 @@ class RtsOrderHintTest {
 			Target withWorker = new Target(true, noWorker.blockHit(), noWorker.blockIsAir(), noWorker.holdingBlock(),
 					noWorker.targetDistSqr());
 			for (int count : new int[] {0, 1}) {
-				for (boolean place : new boolean[] {false, true}) {
-					for (boolean mine : new boolean[] {false, true}) {
-						assertEquals(RtsOrderHint.evaluate(count, place, mine, noWorker),
-								RtsOrderHint.evaluate(count, place, mine, withWorker));
-					}
+				for (RtsOrderKind kind : RtsOrderKind.values()) {
+					assertEquals(RtsOrderHint.evaluate(count, kind, noWorker),
+							RtsOrderHint.evaluate(count, kind, withWorker));
 				}
 			}
+			for (boolean room : new boolean[] {false, true}) {
+				assertEquals(RtsOrderHint.evaluateSpawn(noWorker, room), RtsOrderHint.evaluateSpawn(withWorker, room));
+			}
 		}
+	}
+
+	@Test
+	void spawnIsValidWithoutSelection() {
+		Hint hint = RtsOrderHint.evaluateSpawn(solid(), true);
+
+		assertEquals(new Hint("rabodepalha.rts.hint.spawn", true, null), hint);
+	}
+
+	@Test
+	void spawnWithoutBlockHitIsRejected() {
+		Hint hint = RtsOrderHint.evaluateSpawn(new Target(false, false, false, true, 0.0), true);
+
+		assertEquals(new Hint("rabodepalha.rts.order.no_target", false, null), hint);
+	}
+
+	@Test
+	void spawnOnAirIsRejected() {
+		Hint hint = RtsOrderHint.evaluateSpawn(new Target(false, true, true, true, 16.0), true);
+
+		assertEquals(new Hint("rabodepalha.rts.order.no_target", false, null), hint);
+	}
+
+	@Test
+	void spawnBeyondLimitIsRejected() {
+		Hint hint = RtsOrderHint.evaluateSpawn(new Target(false, true, false, true, Math.nextUp(MAX_SQR)), true);
+
+		assertEquals(new Hint("rabodepalha.rts.order.target_too_far", false, null), hint);
+	}
+
+	@Test
+	void spawnAtLimitIsValid() {
+		assertTrue(RtsOrderHint.evaluateSpawn(new Target(false, true, false, true, MAX_SQR), true).valid());
+	}
+
+	@Test
+	void spawnWithoutRoomIsRejected() {
+		Hint hint = RtsOrderHint.evaluateSpawn(solid(), false);
+
+		assertEquals(new Hint("rabodepalha.rts.order.no_room", false, null), hint);
+	}
+
+	@Test
+	void spawnTooFarBeatsNoRoom() {
+		Hint hint = RtsOrderHint.evaluateSpawn(new Target(false, true, false, true, Math.nextUp(MAX_SQR)), false);
+
+		assertEquals("rabodepalha.rts.order.target_too_far", hint.key());
+	}
+
+	@Test
+	void spawnIgnoresHeldItem() {
+		assertTrue(RtsOrderHint.evaluateSpawn(new Target(false, true, false, false, 16.0), true).valid());
 	}
 
 	@Test

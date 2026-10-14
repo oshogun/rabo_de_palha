@@ -12,7 +12,8 @@
 			"io.github.oshogun.rabodepalha.gametest.WorkerCommandGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerChunkTicketGameTest",
 			"io.github.oshogun.rabodepalha.gametest.RtsModeGameTest",
-			"io.github.oshogun.rabodepalha.gametest.RtsOrderGameTest"
+			"io.github.oshogun.rabodepalha.gametest.RtsOrderGameTest",
+			"io.github.oshogun.rabodepalha.gametest.RtsCommandGameTest"
 		]
 	},
 	"depends": {

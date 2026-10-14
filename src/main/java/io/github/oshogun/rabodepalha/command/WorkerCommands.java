@@ -5,6 +5,7 @@ import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
@@ -45,9 +46,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
@@ -205,14 +204,8 @@ public final class WorkerCommands {
 	}
 
 	private static int spawn(CommandSourceStack source, Vec3 pos) {
-		ServerLevel level = source.getLevel();
-		WorkerEntity worker = ModEntities.WORKER.create(level, EntitySpawnReason.COMMAND);
+		WorkerEntity worker = WorkerSpawner.spawn(source.getLevel(), pos, source.getRotation().y, null);
 		if (worker == null) {
-			source.sendFailure(Component.literal("Could not create worker"));
-			return 0;
-		}
-		worker.snapTo(pos.x, pos.y, pos.z, source.getRotation().y, 0.0F);
-		if (!level.addFreshEntity(worker)) {
 			source.sendFailure(Component.literal("Could not spawn worker"));
 			return 0;
 		}

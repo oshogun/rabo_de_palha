@@ -13,23 +13,20 @@ import net.minecraft.world.phys.Vec3;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
+import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 
 /**
  * Client glue for {@link RtsOrderHint}: fills in the {@link RtsOrderHint.Target} from the cursor hover, the
- * selection, the order modifiers and the held item, and turns the resulting hint into text. The order targets
- * the block hit, so a worker under the cursor does not change the hint.
+ * selection and the held item, and turns the resulting hint into text. The order targets the block hit, so a
+ * worker under the cursor does not change the hint.
  */
 public final class RtsOrderHintClient {
 	private RtsOrderHintClient() {
 	}
 
-	/** The order right-click would give for {@code hover} with the current selection and modifiers. */
-	public static RtsOrderHint.Hint current(RtsSelectionClient.Hover hover) {
+	/** The order of the given kind for {@code hover} with the current selection. */
+	public static RtsOrderHint.Hint current(RtsSelectionClient.Hover hover, RtsOrderKind kind) {
 		Minecraft client = Minecraft.getInstance();
-		boolean placeMod = RtsClient.placeOrderKey.isDown();
-		boolean mineMod = RtsClient.mineOrderKey.isDown();
-		RtsOrderKind kind = placeMod ? RtsOrderKind.PLACE : mineMod ? RtsOrderKind.MINE : RtsOrderKind.MOVE;
-
 		LocalPlayer player = client.player;
 		ClientLevel level = client.level;
 		BlockHitResult block = hover.block();
@@ -44,10 +41,37 @@ public final class RtsOrderHintClient {
 		}
 		RtsOrderHint.Target target = new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir,
 				heldItem(client).getItem() instanceof BlockItem, distSqr);
-		return RtsOrderHint.evaluate(RtsSelectionClient.count(), placeMod, mineMod, target);
+		return RtsOrderHint.evaluate(RtsSelectionClient.count(), kind, target);
 	}
 
-	/** The hint's text: the block name for mine, the held item name for place, the reason when invalid. */
+	/**
+	 * Spawning a worker on top of the hovered block. The distance is measured to the spawn spot, and the room
+	 * check uses the client's loaded block states; the server repeats both checks.
+	 */
+	public static RtsOrderHint.Hint spawn(RtsSelectionClient.Hover hover) {
+		Minecraft client = Minecraft.getInstance();
+		LocalPlayer player = client.player;
+		ClientLevel level = client.level;
+		BlockHitResult block = hover.block();
+		boolean blockHit = block != null && player != null && level != null;
+		boolean blockIsAir = false;
+		double distSqr = 0;
+		boolean roomFree = false;
+		if (blockHit) {
+			blockIsAir = level.getBlockState(block.getBlockPos()).isAir();
+			BlockPos spot = block.getBlockPos().above();
+			distSqr = player.getEyePosition().distanceToSqr(Vec3.atCenterOf(spot));
+			roomFree = WorkerSpawner.hasRoom(level, WorkerSpawner.feetOn(spot));
+		}
+		RtsOrderHint.Target target = new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir,
+				heldItem(client).getItem() instanceof BlockItem, distSqr);
+		return RtsOrderHint.evaluateSpawn(target, roomFree);
+	}
+
+	/**
+	 * The hint's text: the block name for mine, the held item name for place, the reason when invalid. A spawn
+	 * hint has no kind and uses its key as is.
+	 */
 	public static Component text(RtsOrderHint.Hint hint, RtsSelectionClient.Hover hover) {
 		if (hint.valid()) {
 			Minecraft client = Minecraft.getInstance();

@@ -28,7 +28,7 @@ public final class RtsOrderHint {
 	/**
 	 * @param key translation key: {@code rabodepalha.rts.hint.*} when valid, the rejection reason otherwise
 	 * @param valid whether the order would be accepted as far as the client can tell
-	 * @param kind the order kind right-click would give, picked from the modifiers even when the order is rejected
+	 * @param kind the order kind being evaluated, set even when the order is rejected; {@code null} for a spawn
 	 */
 	public record Hint(String key, boolean valid, @Nullable RtsOrderKind kind) {
 	}
@@ -49,11 +49,10 @@ public final class RtsOrderHint {
 	}
 
 	/**
-	 * The order right-click would give. Place wins over mine, mine over move. Rejections are checked in
-	 * this order: nothing selected, no block hit, mining air, nothing to place, target too far.
+	 * An order of the given kind at the target. Rejections are checked in this order: nothing selected,
+	 * no block hit, mining air, nothing to place, target too far.
 	 */
-	public static Hint evaluate(int selectionCount, boolean placeMod, boolean mineMod, Target t) {
-		RtsOrderKind kind = placeMod ? RtsOrderKind.PLACE : mineMod ? RtsOrderKind.MINE : RtsOrderKind.MOVE;
+	public static Hint evaluate(int selectionCount, RtsOrderKind kind, Target t) {
 		if (selectionCount <= 0) {
 			return reject("rabodepalha.rts.order.nothing_selected", kind);
 		}
@@ -76,7 +75,27 @@ public final class RtsOrderHint {
 		}, true, kind);
 	}
 
-	private static Hint reject(String key, RtsOrderKind kind) {
+	/**
+	 * Spawning a worker on top of the target block. It needs no selection, and the target distance is
+	 * measured to the spawn spot. Rejections are checked in this order: no block hit or air, target too
+	 * far, no room for a worker at the spawn spot.
+	 *
+	 * @param roomFree whether a worker fits on top of the target block
+	 */
+	public static Hint evaluateSpawn(Target t, boolean roomFree) {
+		if (!t.blockHit() || t.blockIsAir()) {
+			return reject("rabodepalha.rts.order.no_target", null);
+		}
+		if (t.targetDistSqr() > RtsOrders.MAX_TARGET_DISTANCE * RtsOrders.MAX_TARGET_DISTANCE) {
+			return reject("rabodepalha.rts.order.target_too_far", null);
+		}
+		if (!roomFree) {
+			return reject("rabodepalha.rts.order.no_room", null);
+		}
+		return new Hint("rabodepalha.rts.hint.spawn", true, null);
+	}
+
+	private static Hint reject(String key, @Nullable RtsOrderKind kind) {
 		return new Hint(key, false, kind);
 	}
 }

@@ -15,13 +15,15 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsCommandClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsOrdersClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
- * the left button selects workers (click or box drag), the right button orders them, the wheel zooms instead of changing the
+ * the left button uses the command bar, fires the armed command or selects workers (click or box drag), the right
+ * button disarms the armed command or orders a move, the wheel zooms instead of changing the
  * spectator fly speed, and dragging with the middle button rotates (horizontally) and tilts (vertically)
  * the camera. The drag uses cursor-position deltas rather than vanilla's accumulated movement.
  */
@@ -39,6 +41,9 @@ abstract class MouseHandlerMixin {
 
 	@Unique
 	private boolean rabodepalha$middleDragging;
+
+	@Unique
+	private boolean rabodepalha$swallowLeftRelease;
 
 	@Unique
 	private double rabodepalha$dragLastX;
@@ -59,6 +64,7 @@ abstract class MouseHandlerMixin {
 	private void rabodepalha$rtsButton(long handle, MouseButtonInfo rawButtonInfo, int action, CallbackInfo ci) {
 		if (!this.rabodepalha$rtsWorldInput(handle)) {
 			this.rabodepalha$middleDragging = false;
+			this.rabodepalha$swallowLeftRelease = false;
 			// A screen opened mid-drag: the box can no longer finish.
 			RtsSelectionClient.cancelDrag();
 			return;
@@ -69,12 +75,24 @@ abstract class MouseHandlerMixin {
 			this.rabodepalha$dragLastY = this.ypos;
 		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_LEFT) {
 			if (action == 1) {
-				RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
+				if (RtsCommandClient.onLeftPress(this.xpos, this.ypos, rawButtonInfo.hasShiftDown())) {
+					// The bar or the armed mode took the press: its release must not finish a selection.
+					this.rabodepalha$swallowLeftRelease = true;
+				} else {
+					RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
+				}
 			} else if (action == 0) {
-				RtsSelectionClient.onLeftRelease(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
+				if (this.rabodepalha$swallowLeftRelease) {
+					this.rabodepalha$swallowLeftRelease = false;
+				} else {
+					RtsSelectionClient.onLeftRelease(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
+				}
 			}
 		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_RIGHT && action == 1) {
-			RtsOrdersClient.onRightClick(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
+			// Right-clicks on the bar do nothing; elsewhere they disarm the armed command, or order a plain move.
+			if (!RtsCommandClient.overBar(this.xpos, this.ypos) && !RtsCommandClient.onRightClick()) {
+				RtsOrdersClient.onRightClick(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
+			}
 		}
 		ci.cancel();
 	}

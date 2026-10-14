@@ -12,10 +12,11 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsCommandClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 
 /**
- * In RTS mode Escape first cancels a selection drag, then clears the selection, and only pauses the
+ * In RTS mode Escape first cancels a selection drag, then disarms the armed command, then clears the selection, and only pauses the
  * game once there is nothing left to clear.
  */
 @Mixin(KeyboardHandler.class)
@@ -37,6 +38,8 @@ abstract class KeyboardHandlerMixin {
 		}
 		if (RtsSelectionClient.isDragging()) {
 			RtsSelectionClient.cancelDrag();
+			ci.cancel();
+		} else if (RtsCommandClient.onEscape()) {
 			ci.cancel();
 		} else if (!RtsSelectionClient.isEmpty()) {
 			RtsSelectionClient.clear();

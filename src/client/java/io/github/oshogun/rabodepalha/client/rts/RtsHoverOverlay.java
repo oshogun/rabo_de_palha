@@ -35,7 +35,8 @@ public final class RtsHoverOverlay {
 		Minecraft client = Minecraft.getInstance();
 		RtsSelectionClient.updateHover(client);
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
-		if (hover == null) {
+		// The command bar covers the world under it: a click there uses the bar, so highlight nothing.
+		if (hover == null || RtsCommandClient.hoveredButton() >= 0) {
 			return;
 		}
 		WorkerEntity worker = hover.worker();
