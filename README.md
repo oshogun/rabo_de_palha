@@ -69,6 +69,12 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   `Place: <item>`). `Shift` appends to each worker's queue; otherwise the queue is replaced. The
   server needs permission level 2 and rejects unknown or dead workers and targets too far away
   (128 blocks); the HUD shows the result in green or red for a few seconds.
+- Hover: the block under the cursor is outlined with its hit face highlighted (vanilla's crosshair
+  outline is hidden), and a worker under the cursor gets a yellow box, distinct from the selection
+  glow. A hint line in the HUD says what right-click would do ("Move", "Mine <block>",
+  "Place <block>"); it is grey with the reason when the order would be refused (nothing selected,
+  mining air, no block in hand, more than 128 blocks away). Right-click shows the same reason.
+  The overlay uses `client/render/WorldOverlay`, which other features can reuse.
 - Logging out, dying, respawning or a server restart while in RTS mode returns the player to
   normal mode at the entry position. Using `/gamemode` also ends RTS mode.
 

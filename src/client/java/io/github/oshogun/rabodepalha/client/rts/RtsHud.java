@@ -12,11 +12,12 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
 
 /**
  * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
- * would use, and the selection box while dragging.
+ * would use, what right-click would do at the cursor, and the selection box while dragging.
  */
 public final class RtsHud {
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
@@ -29,6 +30,7 @@ public final class RtsHud {
 
 	private static final int OK_COLOR = 0xFF55FF55;
 	private static final int ERROR_COLOR = 0xFFFF5555;
+	private static final int HINT_INVALID_COLOR = 0xFF808080;
 	/** How long an order feedback line stays on screen (about 60 ticks). */
 	private static final long FEEDBACK_MILLIS = 3000L;
 
@@ -76,7 +78,15 @@ public final class RtsHud {
 			if (held.getItem() instanceof BlockItem) {
 				graphics.text(client.font, Component.translatable("rabodepalha.rts.place_block", held.getHoverName()),
 						MARGIN, y, TEXT_COLOR);
+				y += lineHeight;
 			}
+		}
+		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
+		if (hover != null) {
+			// What right-click would do; an invalid hint's key already states the reason.
+			RtsOrderHint.Hint hint = RtsOrderHintClient.current(hover);
+			graphics.text(client.font, RtsOrderHintClient.text(hint, hover), MARGIN, y,
+					hint.valid() ? OK_COLOR : HINT_INVALID_COLOR);
 		}
 
 		RtsScreenRect rect = RtsSelectionClient.currentDragRect();

@@ -40,6 +40,17 @@ public final class RtsSelectionClient {
 
 	private static final RtsSelection SELECTION = new RtsSelection();
 
+	/**
+	 * What is under the cursor at window pixel ({@code x}, {@code y}). {@code block} is the plain block clip
+	 * (COLLIDER, no fluids, no entities), so it is the block behind or under any worker; orders target it.
+	 * {@code worker} is the nearest worker in front of that block, used for the hover highlight and click select.
+	 */
+	public record Hover(double x, double y, @Nullable BlockHitResult block, @Nullable WorkerEntity worker) {
+	}
+
+	/** This frame's pick, set by {@link #updateHover}; {@code null} outside RTS, with a screen open or no level. */
+	private static @Nullable Hover hover;
+
 	private static boolean dragging;
 	private static double dragStartX;
 	private static double dragStartY;
@@ -86,6 +97,45 @@ public final class RtsSelectionClient {
 	public static void clear() {
 		SELECTION.clear();
 		cancelDrag();
+		hover = null;
+	}
+
+	/** This frame's pick, or {@code null} outside RTS, with a screen open or no level. */
+	public static @Nullable Hover hover() {
+		return hover;
+	}
+
+	/**
+	 * Picks what is under the cursor, once per frame. Call from a render callback; clicks reuse the result
+	 * through {@link #hoverAt} while the cursor has not moved.
+	 */
+	public static void updateHover(Minecraft client) {
+		ClientLevel level = client.level;
+		if (!RtsClient.isActive() || client.gui.screen() != null || level == null || client.mouseHandler == null) {
+			hover = null;
+			return;
+		}
+		hover = computeHover(client, level, client.mouseHandler.xpos(), client.mouseHandler.ypos());
+	}
+
+	/** The cached hover if it was picked at ({@code x}, {@code y}), otherwise a fresh pick there. */
+	public static Hover hoverAt(double x, double y) {
+		Hover cached = hover;
+		if (cached != null && cached.x() == x && cached.y() == y) {
+			return cached;
+		}
+		Minecraft client = Minecraft.getInstance();
+		ClientLevel level = client.level;
+		if (level == null) {
+			return new Hover(x, y, null, null);
+		}
+		return computeHover(client, level, x, y);
+	}
+
+	private static Hover computeHover(Minecraft client, ClientLevel level, double x, double y) {
+		Ray ray = cursorRay(client, x, y);
+		BlockHitResult blockHit = clipBlock(level, ray);
+		return new Hover(x, y, blockHit, pickWorker(level, ray, blockHit));
 	}
 
 	public static boolean isDragging() {
@@ -132,7 +182,8 @@ public final class RtsSelectionClient {
 		if (RtsScreenRect.isDrag(dragStartX, dragStartY, x, y)) {
 			SELECTION.boxSelect(boxPick(client, RtsScreenRect.fromCorners(dragStartX, dragStartY, x, y)), shift);
 		} else {
-			SELECTION.clickSelect(clickPick(client, x, y), shift);
+			WorkerEntity worker = hoverAt(x, y).worker();
+			SELECTION.clickSelect(worker == null ? null : worker.getId(), shift);
 		}
 	}
 
@@ -176,34 +227,28 @@ public final class RtsSelectionClient {
 
 	/** The block under the cursor within {@link #PICK_RANGE}, or {@code null} if the ray hits nothing. */
 	static @Nullable BlockHitResult pickBlock(double x, double y) {
-		Minecraft client = Minecraft.getInstance();
-		if (client.level == null) {
-			return null;
-		}
-		return clipBlock(client.level, cursorRay(client, x, y));
+		return hoverAt(x, y).block();
 	}
 
-	/** The id of the nearest worker under the cursor that is not hidden behind blocks, or {@code null}. */
-	private static @Nullable Integer clickPick(Minecraft client, double x, double y) {
-		Ray ray = cursorRay(client, x, y);
+	/** The nearest worker on {@code ray} that is closer than {@code blockHit}, or {@code null}. */
+	private static @Nullable WorkerEntity pickWorker(ClientLevel level, Ray ray, @Nullable BlockHitResult blockHit) {
 		Vec3 start = ray.start();
 		Vec3 end = ray.end();
 
-		BlockHitResult blockHit = clipBlock(client.level, ray);
 		double maxDistSqr = blockHit == null
 				? PICK_RANGE * PICK_RANGE
 				: blockHit.getLocation().distanceToSqr(start);
 
-		Integer best = null;
+		WorkerEntity best = null;
 		double bestDistSqr = maxDistSqr;
-		for (WorkerEntity worker : client.level.getEntitiesOfClass(WorkerEntity.class, new AABB(start, end).inflate(1.0),
+		for (WorkerEntity worker : level.getEntitiesOfClass(WorkerEntity.class, new AABB(start, end).inflate(1.0),
 				Entity::isAlive)) {
 			Optional<Vec3> hit = worker.getBoundingBox().inflate(PICK_INFLATE).clip(start, end);
 			if (hit.isPresent()) {
 				double distSqr = hit.get().distanceToSqr(start);
 				if (distSqr < bestDistSqr) {
 					bestDistSqr = distSqr;
-					best = worker.getId();
+					best = worker;
 				}
 			}
 		}
