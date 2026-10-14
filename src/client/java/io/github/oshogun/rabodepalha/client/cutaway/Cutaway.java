@@ -13,9 +13,10 @@ import net.minecraft.world.entity.Entity;
 
 import io.github.oshogun.rabodepalha.client.cutaway.sodium.SodiumCutaway;
 import io.github.oshogun.rabodepalha.rts.CutawayRegion;
+import io.github.oshogun.rabodepalha.rts.CutawayShape;
 
 /**
- * Client state of the RTS cutaway: the region hidden in Level mode. The region is set on the main thread
+ * Client state of the RTS cutaway: the region hidden in Level mode and by the local cuts. The region is set on the main thread
  * and read by section meshing threads, so it is a volatile immutable value. Changing it re-meshes the
  * sections the cut crosses and refreshes the visible-section graph when whole sections are hidden or shown.
  */
@@ -53,8 +54,10 @@ public final class Cutaway {
 		if (level == null) {
 			return;
 		}
-		dirtySections(client, level, CutawayRegion.changedSectionYs(old, next, level.getMinSectionY(), level.getMaxSectionY()));
-		if (CutawayRegion.insideSetChanged(old, next)) {
+		// Only the async path: never setBlockDirty or a player-changed rebuild, which compile synchronously.
+		boolean insideChanged = CutawayRegion.diff(old, next, renderWindow(client, level),
+				client.levelExtractor::setSectionDirty);
+		if (insideChanged) {
 			if (SODIUM) {
 				SodiumCutaway.invalidate();
 			} else {
@@ -68,29 +71,22 @@ public final class Cutaway {
 		region = CutawayRegion.NONE;
 	}
 
-	/** Whether {@code entity} is hidden: its feet are above the level. */
+	/** Whether {@code entity} is hidden: its feet block is in a part of the region that hides entities. */
 	public static boolean hides(Entity entity) {
-		return region.hidesFeet(Mth.floor(entity.getY()));
+		return region.hidesEntityAt(Mth.floor(entity.getX()), Mth.floor(entity.getY()), Mth.floor(entity.getZ()));
 	}
 
 	/** Whether a block entity at {@code pos} is hidden. */
 	public static boolean hides(BlockPos pos) {
-		return region.hidesFeet(pos.getY());
+		return region.hidesEntityAt(pos.getX(), pos.getY(), pos.getZ());
 	}
 
-	private static void dirtySections(Minecraft client, ClientLevel level, int[] sectionYs) {
-		if (sectionYs.length == 0) {
-			return;
-		}
+	/** The sections that can be on screen: the render distance plus one around the camera, the level's full height. */
+	private static CutawayShape.SectionBounds renderWindow(Minecraft client, ClientLevel level) {
 		int radius = client.options.getEffectiveRenderDistance() + 1;
 		SectionPos camera = SectionPos.of(client.gameRenderer.mainCamera().position());
-		for (int sy : sectionYs) {
-			for (int sz = camera.z() - radius; sz <= camera.z() + radius; sz++) {
-				for (int sx = camera.x() - radius; sx <= camera.x() + radius; sx++) {
-					client.levelExtractor.setSectionDirty(sx, sy, sz);
-				}
-			}
-		}
+		return new CutawayShape.SectionBounds(camera.x() - radius, level.getMinSectionY(), camera.z() - radius,
+				camera.x() + radius, level.getMaxSectionY(), camera.z() + radius);
 	}
 
 	private static void hideExtracted(LevelRenderState state) {
@@ -98,7 +94,8 @@ public final class Cutaway {
 		if (!now.active()) {
 			return;
 		}
-		state.entityRenderStates.removeIf(entity -> now.hidesFeet(Mth.floor(entity.y)));
-		state.blockEntityRenderStates.removeIf(blockEntity -> now.hidesFeet(blockEntity.blockPos.getY()));
+		state.entityRenderStates.removeIf(entity -> now.hidesEntityAt(Mth.floor(entity.x), Mth.floor(entity.y), Mth.floor(entity.z)));
+		state.blockEntityRenderStates.removeIf(blockEntity -> now.hidesEntityAt(blockEntity.blockPos.getX(),
+				blockEntity.blockPos.getY(), blockEntity.blockPos.getZ()));
 	}
 }

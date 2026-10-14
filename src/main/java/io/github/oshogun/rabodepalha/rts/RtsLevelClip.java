@@ -3,13 +3,14 @@ package io.github.oshogun.rabodepalha.rts;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Pure voxel traversal for picking in the RTS Level view: it walks the blocks a ray passes through and
- * skips every block above the view level. It has no Minecraft dependencies, so it can be unit-tested.
+ * Pure voxel traversal for picking through the RTS cutaway: it walks the blocks a ray passes through and
+ * skips every hidden block, such as those above the view level or inside the see-through bubble. It has
+ * no Minecraft dependencies, so it can be unit-tested.
  *
  * <p>It is a 3D DDA (Amanatides and Woo) that visits voxels in the same order as vanilla's
  * {@code BlockGetter.traverseBlocks}, including its tiny nudge of both ends along the ray. Unlike a
  * normal clip it starts in the voxel that contains the start point even when that voxel is solid, so a
- * camera sitting inside terrain above the level still reaches a cave or room floor below it.
+ * camera sitting inside hidden terrain still reaches a cave or room floor below it.
  */
 public final class RtsLevelClip {
 	/** How far the ends are nudged along the ray, as a fraction of its length, as vanilla does. */
@@ -24,6 +25,12 @@ public final class RtsLevelClip {
 		@Nullable T visit(int x, int y, int z);
 	}
 
+	/** Whether a block is hidden, so the ray passes through it. */
+	@FunctionalInterface
+	public interface Hidden {
+		boolean hidden(int x, int y, int z);
+	}
+
 	/**
 	 * Walks the blocks from the start to the end point in ray order and returns the first non-null
 	 * result of the visitor, or null when nothing is hit. Blocks with y above {@code viewLevel} are
@@ -31,6 +38,16 @@ public final class RtsLevelClip {
 	 */
 	public static <T> @Nullable T traverse(double sx, double sy, double sz, double ex, double ey, double ez,
 			int viewLevel, Visitor<T> visitor) {
+		return traverse(sx, sy, sz, ex, ey, ez, (x, y, z) -> y > viewLevel, visitor);
+	}
+
+	/**
+	 * Walks the blocks from the start to the end point in ray order and returns the first non-null
+	 * result of the visitor, or null when nothing is hit. Blocks {@code hidden} accepts are skipped
+	 * without calling the visitor.
+	 */
+	public static <T> @Nullable T traverse(double sx, double sy, double sz, double ex, double ey, double ez,
+			Hidden hidden, Visitor<T> visitor) {
 		if (sx == ex && sy == ey && sz == ez) {
 			return null;
 		}
@@ -44,7 +61,7 @@ public final class RtsLevelClip {
 		int x = (int) Math.floor(startX);
 		int y = (int) Math.floor(startY);
 		int z = (int) Math.floor(startZ);
-		T hit = visit(x, y, z, viewLevel, visitor);
+		T hit = visit(x, y, z, hidden, visitor);
 		if (hit != null) {
 			return hit;
 		}
@@ -79,7 +96,7 @@ public final class RtsLevelClip {
 				z += stepZ;
 				tZ += deltaZ;
 			}
-			hit = visit(x, y, z, viewLevel, visitor);
+			hit = visit(x, y, z, hidden, visitor);
 			if (hit != null) {
 				return hit;
 			}
@@ -87,8 +104,8 @@ public final class RtsLevelClip {
 		return null;
 	}
 
-	private static <T> @Nullable T visit(int x, int y, int z, int viewLevel, Visitor<T> visitor) {
-		return y > viewLevel ? null : visitor.visit(x, y, z);
+	private static <T> @Nullable T visit(int x, int y, int z, Hidden hidden, Visitor<T> visitor) {
+		return hidden.hidden(x, y, z) ? null : visitor.visit(x, y, z);
 	}
 
 	private static double lerp(double t, double from, double to) {

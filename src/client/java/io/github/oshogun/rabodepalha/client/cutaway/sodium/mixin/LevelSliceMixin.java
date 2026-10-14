@@ -54,6 +54,8 @@ abstract class LevelSliceMixin implements CutawayLevelView {
 	@Inject(method = "copyData", at = @At("TAIL"))
 	private void rabodepalha$captureCut(ChunkRenderContext context, CallbackInfo ci) {
 		CutawayRegion region = Cutaway.current();
+		// The origin is the section being built, in section coordinates (RenderSectionManager passes
+		// render.getPosition() to LevelSlice.prepare), like minSection + 1 in the vanilla RenderSectionRegion hook.
 		SectionPos origin = context.getOrigin();
 		this.rabodepalha$cut = region.classify(origin.getX(), origin.getY(), origin.getZ()) == CutawayRegion.Section.BOUNDARY
 			? region

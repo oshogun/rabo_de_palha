@@ -504,6 +504,82 @@ worker):
 - No new renderer hooks are needed beyond #27's. The only new work is the shapes and their
   `classify` implementations.
 
+**#29 as built.**
+
+- **Shapes.** `CutawayRegion` is now a union of immutable `CutawayShape` records:
+  - `Above(level)`: the #27 view level;
+  - `Box`: inclusive, `maxY` may be `Integer.MAX_VALUE`; used for roofs and walls;
+  - `Bubble`: an oblique vertical cylinder that leans toward the camera, tested at block centres.
+
+  `contains` is the OR over the shapes. `classify` returns `INSIDE` if any shape is `INSIDE`, else
+  `BOUNDARY` if any shape is, else `OUTSIDE`. The renderer hooks and `Cutaway.set` didn't change; no
+  new mixins were added. Each shape's `classify` uses the inflated span on all three axes. The
+  bubble's `INSIDE` is exact (every layer's disc covers the span's corners) and its `OUTSIDE` is
+  conservative (the span's rectangle is farther than the radius from every layer's disc centre).
+- **Diff.** `CutawayRegion.diff(old, now, window, sink)` replaces `changedSectionYs` and
+  `insideSetChanged`. Only the sections inside the `sectionBounds()` of the shapes that changed
+  (the symmetric difference of the two shape lists), clipped to the render window, are visited.
+  Elsewhere both regions hide the same blocks. A visited section is re-meshed when it is `BOUNDARY`
+  on either side. The graph is invalidated when a visited section moves in or out of `INSIDE`.
+  `Above` is unbounded on x/z, so a level change still dirties its boundary layer across the
+  window, as in #27. Moving the bubble with the level unchanged dirties only the bubble's
+  sections.
+- **Entities.** `hidesEntityAt(x, feetY, z)` replaces `hidesFeet`. `Above` and `Box` hide the
+  entities whose feet block they contain; the bubble doesn't, so workers in it stay visible and
+  clickable. Picking reads the published region: `RtsLevelClip.traverse` takes a hidden-voxel
+  predicate (`region::contains`) whenever any cut is active, and workers that `hidesEntityAt`
+  hides can't be hovered, clicked, box-selected or get order markers. `RtsClient.pickLevel()` is
+  gone.
+- **Debounce** (`RtsCutawayFocus`).
+  - The bubble anchor snaps to a 4-block grid on x/z, and stays while the raw point is within
+    4 blocks (2 of hysteresis past its cell).
+  - Y snaps *up* to the grid, and stays only while it is not below the raw cell and less than
+    8 above it. So the bubble never hides the hovered block, which stops the cursor ray from
+    drilling down through it.
+  - Yaw is quantized to 8 facings with 5° of hysteresis.
+  - The lean per block of height is cot(pitch), snapped to 0, 0.5, 1 or 2.
+  - The bubble has radius 5 and is 24 blocks tall from the cell above the hovered block, or from
+    the hovered or focused worker's feet.
+  - There is no soft or stepped edge: the doc's quantized, re-meshed cut wins over the issue's
+    wording, and the cylinder's voxel edge is the step.
+- **Rooms** (`CutawayRooms`, pure, over a `Solidity` predicate).
+  - **Flood fill.** A 4-connected fill over the air cells of the feet layer. A cell joins only if a
+    ceiling block lies within 6 above it. Cells without a ceiling count as openings; solid
+    neighbours count as walls.
+  - **Rejection.** The fill gives up past 512 cells or a 32-block extent (large caves, forests),
+    or when openings make up more than 25% of the edges (overhangs).
+  - **Doorways.** Cells between two solid blocks on one axis are filled through, but they don't
+    widen the room's box or lower its ceiling to the lintel.
+  - **Start cell.** The start is the air cell in front of the hovered face, if it has a ceiling.
+    Otherwise it is the first air cell under the hovered block, through at most 3 solid blocks
+    (a roof). Either one then drops to the floor. A hovered or focused worker starts from its
+    feet.
+  - **Roofs off.** `roofBox` covers the interior widened by 1, from the lowest ceiling up.
+  - **Walls down.** `nearWalls` gives 1-thick slabs on the 1 or 2 sides of the widened box that
+    face the quantized camera, from one above the feet row up to under the ceiling. The feet row
+    stays as a stub.
+  - **Solidity.** On the client (`CutawaySolidity`), walls are blocks in
+    `blocks_motion_in_heightmap_no_leaves`, and any non-replaceable block is a ceiling, leaves
+    included.
+- **Room caching.** `RtsCutawayModes` keeps one room for the cursor and one for the focused worker
+  (the first selected). Each is detected again when its start cell changes, or every 20 game
+  ticks so that block edits show up. The cursor keeps its room while the hovered block stays
+  within the widened box, so dropping through the hidden roof onto the floor doesn't switch
+  rooms. No room means no shape, so roofs-on doesn't by itself switch occlusion culling off.
+- **Known limitation.** Hovering ground with a cave pocket 1–3 blocks under it finds that pocket
+  through the roof probe, and lifts the ground over it.
+- **Keys.**
+  - `I` toggles the bubble (default off), `[` toggles roofs off (default on) and `]` toggles walls
+    down (default off). Each shows HUD feedback.
+  - The issue's B/J/K were already taken by the mine, deposit and withdraw commands. Other free
+    letters clash with vanilla bindings.
+  - The toggles reset on disconnect, like the brightness choice. Anchors and cached rooms reset on
+    every RTS toggle.
+- **Sodium origin check.** In 0.9.2, `RenderSectionManager` passes `render.getPosition()` to
+  `LevelSlice.prepare`, and that becomes `ChunkRenderContext.getOrigin()`. So the origin the
+  `LevelSlice` hook classifies is the section being built, in section coordinates. This matches
+  the vanilla hook's `minSection + 1`. No fix was needed; a comment records it.
+
 ## 8. Classes and methods relied on
 
 **Vanilla 26.3** (under `build/mc-sources/`):

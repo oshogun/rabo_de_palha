@@ -31,6 +31,7 @@ import io.github.oshogun.rabodepalha.network.RtsSnapshotPayload;
 import io.github.oshogun.rabodepalha.network.RtsStatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTogglePayload;
 import io.github.oshogun.rabodepalha.rts.CutawayRegion;
+import io.github.oshogun.rabodepalha.rts.CutawayShape;
 import io.github.oshogun.rabodepalha.rts.RtsBrightness;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
@@ -65,6 +66,10 @@ public final class RtsClient {
 	public static KeyMapping levelToWorkerKey;
 	/** Cycles the brightness boost through its presets. */
 	public static KeyMapping brightnessKey;
+	/** Switch the local cutaways on and off: the see-through bubble, roofs off and walls down. */
+	public static KeyMapping bubbleKey;
+	public static KeyMapping roofsKey;
+	public static KeyMapping wallsKey;
 
 	/** Time step assumed for the first tick, when there is no previous tick to measure from. */
 	private static final double DEFAULT_TICK_DT = 0.05;
@@ -130,6 +135,12 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_HOME, CATEGORY));
 		brightnessKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_brightness",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_O, CATEGORY));
+		bubbleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_bubble",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_I, CATEGORY));
+		roofsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_roofs",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_LBRACKET, CATEGORY));
+		wallsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_walls",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_RBRACKET, CATEGORY));
 
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
@@ -165,11 +176,6 @@ public final class RtsClient {
 
 	public static int viewLevel() {
 		return viewLevel;
-	}
-
-	/** The highest block Y picks may hit: the view level in level mode, otherwise no limit. */
-	public static int pickLevel() {
-		return viewMode == RtsViewLevel.Mode.LEVEL ? viewLevel : Integer.MAX_VALUE;
 	}
 
 	/** The brightness preset in effect; OFF outside RTS mode, so leaving it restores vanilla lighting. */
@@ -228,6 +234,7 @@ public final class RtsClient {
 		RtsSelectionClient.clear();
 		RtsCommandClient.clear();
 		RtsBlueprintsClient.resetSession();
+		RtsCutawayModes.clearState();
 		if (!value) {
 			RtsSnapshotsClient.clear();
 			RtsItemPickClient.clear();
@@ -247,9 +254,17 @@ public final class RtsClient {
 		syncCutaway();
 	}
 
-	/** Hides everything above the view level in level mode, and nothing otherwise. */
+	/**
+	 * Hides everything above the view level in level mode, plus the local cuts that are switched on (the
+	 * bubble, roofs off, walls down), and nothing outside RTS mode. Called once per tick.
+	 */
 	private static void syncCutaway() {
-		Cutaway.set(active && viewMode == RtsViewLevel.Mode.LEVEL ? CutawayRegion.above(viewLevel) : CutawayRegion.NONE);
+		if (!active) {
+			Cutaway.set(CutawayRegion.NONE);
+			return;
+		}
+		List<CutawayShape> local = RtsCutawayModes.shapes(Minecraft.getInstance());
+		Cutaway.set(CutawayRegion.of(viewMode == RtsViewLevel.Mode.LEVEL ? viewLevel : null, local));
 	}
 
 	private static void reset() {
@@ -265,6 +280,7 @@ public final class RtsClient {
 		resetHeight();
 		resetViewLevel();
 		brightnessChoice = null;
+		RtsCutawayModes.reset();
 		// Re-meshes the cut sections while the level is still there; without a level it only drops the region.
 		Cutaway.set(CutawayRegion.NONE);
 	}
@@ -356,6 +372,15 @@ public final class RtsClient {
 				RtsHud.showFeedback(true, Component.translatable("rabodepalha.rts.brightness",
 						RtsHud.brightnessName(brightnessChoice)));
 			}
+			while (bubbleKey.consumeClick()) {
+				showCutToggle("rabodepalha.rts.cut.bubble", RtsCutawayModes.toggleBubble());
+			}
+			while (roofsKey.consumeClick()) {
+				showCutToggle("rabodepalha.rts.cut.roofs", RtsCutawayModes.toggleRoofs());
+			}
+			while (wallsKey.consumeClick()) {
+				showCutToggle("rabodepalha.rts.cut.walls", RtsCutawayModes.toggleWalls());
+			}
 			for (int i = 0; i < commandKeys.size(); i++) {
 				KeyMapping key = commandKeys.get(i);
 				while (key.consumeClick()) {
@@ -432,14 +457,20 @@ public final class RtsClient {
 		centreDepth = sampleCentreDepth(client.level, x, z);
 	}
 
-	/** Drops command hotkey, view level and brightness presses made outside RTS mode or behind a screen. */
+	private static void showCutToggle(String key, boolean on) {
+		RtsHud.showFeedback(true, Component.translatable(key,
+				Component.translatable(on ? "rabodepalha.rts.cut.on" : "rabodepalha.rts.cut.off")));
+	}
+
+	/** Drops command hotkey, view level, brightness and cutaway presses made outside RTS mode or behind a screen. */
 	private static void dropCommandPresses() {
 		for (KeyMapping key : commandKeys) {
 			while (key.consumeClick()) {
 				// Discard.
 			}
 		}
-		for (KeyMapping key : List.of(levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey, brightnessKey)) {
+		for (KeyMapping key : List.of(levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey, brightnessKey, bubbleKey,
+				roofsKey, wallsKey)) {
 			while (key.consumeClick()) {
 				// Discard.
 			}

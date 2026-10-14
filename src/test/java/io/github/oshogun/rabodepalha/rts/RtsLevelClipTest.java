@@ -116,6 +116,39 @@ class RtsLevelClipTest {
 		assertNull(hit(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, NO_LEVEL, Set.of(key(0, 0, 0))));
 	}
 
+	@Test
+	void regionPredicateSkipsBubbleAndRoofBlocks() {
+		// A roof at y 15 over a floor at y 5, seen straight down.
+		Set<String> house = Set.of(key(0, 15, 0), key(0, 5, 0));
+		CutawayRegion roofOff = CutawayRegion.of(null, List.of(new CutawayShape.Box(-1, 15, -1, 1, Integer.MAX_VALUE, 1)));
+		CutawayRegion bubble = CutawayRegion.of(null, List.of(new CutawayShape.Bubble(0, 6, 0, 3.0, 24, 0.0, 0.0)));
+
+		assertEquals(key(0, 5, 0), hit(0.5, 20.5, 0.5, 0.5, 0.0, 0.5, roofOff, house));
+		assertEquals(key(0, 5, 0), hit(0.5, 20.5, 0.5, 0.5, 0.0, 0.5, bubble, house));
+		// Outside the cut, the roof is hit as usual.
+		assertEquals(key(5, 15, 0), hit(5.5, 20.5, 0.5, 5.5, 0.0, 0.5, roofOff, Set.of(key(5, 15, 0), key(5, 5, 0))));
+	}
+
+	@Test
+	void levelRegionPredicateMatchesTheLevelOverload() {
+		Set<String> blocks = Set.of(key(0, 15, 0), key(1, 9, 1), key(3, 4, 2), key(6, -1, 5));
+		for (int level = -2; level <= 16; level++) {
+			CutawayRegion region = CutawayRegion.above(level);
+			assertEquals(hit(0.3, 20.7, -0.2, 7.9, -4.1, 5.6, level, blocks),
+					hit(0.3, 20.7, -0.2, 7.9, -4.1, 5.6, region, blocks), "level " + level);
+			assertEquals(hit(0.5, 20.5, 0.5, 0.5, -3.0, 0.5, level, blocks),
+					hit(0.5, 20.5, 0.5, 0.5, -3.0, 0.5, region, blocks), "level " + level);
+		}
+	}
+
+	private static String hit(double sx, double sy, double sz, double ex, double ey, double ez, CutawayRegion region,
+			Set<String> solid) {
+		return RtsLevelClip.traverse(sx, sy, sz, ex, ey, ez, region::contains, (x, y, z) -> {
+			String k = key(x, y, z);
+			return solid.contains(k) ? k : null;
+		});
+	}
+
 	private static int[] parse(String key) {
 		String[] parts = key.split(",");
 		return new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2])};
