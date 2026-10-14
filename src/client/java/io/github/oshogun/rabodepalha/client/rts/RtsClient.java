@@ -101,6 +101,8 @@ public final class RtsClient {
 	/** Zooms by {@code wheelDelta} notches towards the screen centre; scrolling up lowers the camera. */
 	public static void zoom(double wheelDelta) {
 		double newHeight = RtsCameraMath.zoom(height, wheelDelta);
+		// The shift deliberately uses the target height: it is applied in full at once, so the pivot never
+		// drifts, while the applied height catches up within ZOOM_SMOOTH_TIME.
 		addOrbitShift(RtsCameraMath.orbitShift(height, yaw, pitch, newHeight, yaw, pitch));
 		height = newHeight;
 	}

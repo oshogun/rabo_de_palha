@@ -209,6 +209,11 @@ public final class RtsCameraMath {
 	public static final double RISE_SMOOTH_TIME = 0.12;
 	/** Smoothing time, in seconds, when the camera descends. */
 	public static final double FALL_SMOOTH_TIME = 1.0;
+	/**
+	 * Smoothing time, in seconds, of the zoom part of the camera height, in both directions. Kept apart
+	 * from the terrain smoothing so wheel zoom feels immediate both ways.
+	 */
+	public static final double ZOOM_SMOOTH_TIME = 0.09;
 	/** Longest time step, in seconds, the height filter integrates at once (guards against lag spikes). */
 	public static final double MAX_STEP_DT = 0.25;
 
@@ -217,11 +222,15 @@ public final class RtsCameraMath {
 	}
 
 	/**
-	 * Smoothed camera height state. {@code ground} is the ground reference the camera currently follows;
-	 * NaN fields mean the filter has not been seeded yet.
+	 * Smoothed camera height state. {@code y} is the applied camera height: {@code base + zoom}, kept above
+	 * the clearance. {@code base} is the smoothed ground part, damped towards {@code ground}, the ground
+	 * reference the camera currently follows. {@code zoom} is the smoothed zoom part. NaN fields mean the
+	 * filter has not been seeded yet.
 	 */
-	public record HeightState(double y, double velocity, double ground) {
-		public static final HeightState UNSET = new HeightState(Double.NaN, 0.0, Double.NaN);
+	public record HeightState(double y, double base, double baseVelocity, double ground, double zoom,
+			double zoomVelocity) {
+		public static final HeightState UNSET = new HeightState(Double.NaN, Double.NaN, 0.0, Double.NaN, Double.NaN,
+				0.0);
 
 		public boolean isSet() {
 			return !Double.isNaN(y);
@@ -345,7 +354,9 @@ public final class RtsCameraMath {
 	}
 
 	/**
-	 * Advances the camera height filter by {@code dt} seconds.
+	 * Advances the camera height filter by {@code dt} seconds. The ground part follows the reference with
+	 * a dead zone, rising fast and falling slowly; the zoom part follows {@code zoomHeight} with a fast
+	 * symmetric spring.
 	 *
 	 * @param prev       state from the previous tick, or {@link HeightState#UNSET}
 	 * @param reference  ground reference from the sample, NaN when nothing sampled was loaded
@@ -360,23 +371,29 @@ public final class RtsCameraMath {
 			if (Double.isNaN(reference)) {
 				return HeightState.UNSET;
 			}
-			return withClearance(reference + zoomHeight, 0.0, reference, highest);
+			return withClearance(reference, 0.0, reference, zoomHeight, 0.0, highest);
 		}
 		double ground = prev.ground();
 		if (!locked && !Double.isNaN(reference) && Math.abs(reference - ground) > HEIGHT_DEAD_ZONE) {
 			ground = reference;
 		}
-		double target = ground + zoomHeight;
-		double smoothTime = target > prev.y() ? RISE_SMOOTH_TIME : FALL_SMOOTH_TIME;
-		Damped damped = smoothDamp(prev.y(), prev.velocity(), target, smoothTime, step);
-		return withClearance(damped.value(), damped.velocity(), ground, highest);
+		double smoothTime = ground > prev.base() ? RISE_SMOOTH_TIME : FALL_SMOOTH_TIME;
+		Damped base = smoothDamp(prev.base(), prev.baseVelocity(), ground, smoothTime, step);
+		Damped zoom = smoothDamp(prev.zoom(), prev.zoomVelocity(), zoomHeight, ZOOM_SMOOTH_TIME, step);
+		return withClearance(base.value(), base.velocity(), ground, zoom.value(), zoom.velocity(), highest);
 	}
 
-	private static HeightState withClearance(double y, double velocity, double ground, double highest) {
-		if (!Double.isNaN(highest) && y < highest + MIN_CLEARANCE) {
-			return new HeightState(highest + MIN_CLEARANCE, Math.max(velocity, 0.0), ground);
+	/**
+	 * Keeps {@code base + zoom} above the clearance. The push goes to the ground part, so leaving a tall
+	 * block eases down with the slow terrain fall rather than snapping.
+	 */
+	private static HeightState withClearance(double base, double baseVelocity, double ground, double zoom,
+			double zoomVelocity, double highest) {
+		if (!Double.isNaN(highest) && base + zoom < highest + MIN_CLEARANCE) {
+			double floor = highest + MIN_CLEARANCE;
+			return new HeightState(floor, floor - zoom, Math.max(baseVelocity, 0.0), ground, zoom, zoomVelocity);
 		}
-		return new HeightState(y, velocity, ground);
+		return new HeightState(base + zoom, base, baseVelocity, ground, zoom, zoomVelocity);
 	}
 
 	private static double clamp(double value, double min, double max) {

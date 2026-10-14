@@ -237,6 +237,67 @@ class RtsCameraMathTest {
 		assertEquals(64.0 + ZOOM, state.y(), EPS);
 	}
 
+	/** Runs {@code ticks} ticks over flat ground at {@code ground} with the given zoom height. */
+	private static RtsCameraMath.HeightState runZoom(RtsCameraMath.HeightState state, double ground, double highest,
+			double zoomHeight, int ticks, boolean locked) {
+		for (int i = 0; i < ticks; i++) {
+			state = RtsCameraMath.filterHeight(state, ground, highest, zoomHeight, TICK, locked);
+		}
+		return state;
+	}
+
+	@Test
+	void zoomInReachesTargetQuickly() {
+		double target = ZOOM / 2.0;
+
+		RtsCameraMath.HeightState state = runZoom(seeded(64.0), 64.0, 64.0, target, 4, false);
+
+		assertEquals(64.0 + target, state.y(), 0.1 * target);
+	}
+
+	@Test
+	void zoomOutReachesTargetQuickly() {
+		double target = ZOOM * 2.0;
+
+		RtsCameraMath.HeightState state = runZoom(seeded(64.0), 64.0, 64.0, target, 4, false);
+
+		assertEquals(64.0 + target, state.y(), 0.1 * target);
+	}
+
+	@Test
+	void zoomDoesNotTouchGroundSmoothing() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+
+		RtsCameraMath.HeightState state = runZoom(start, 64.0, 64.0, ZOOM / 2.0, 1, false);
+
+		assertEquals(start.ground(), state.ground(), EPS);
+		assertEquals(start.base(), state.base(), EPS);
+		assertEquals(0.0, state.baseVelocity(), EPS);
+	}
+
+	@Test
+	void clearanceHoldsWhenZoomingInOverTallBlock() {
+		double highest = 64.0 + 20.0;
+		for (boolean locked : new boolean[] {false, true}) {
+			RtsCameraMath.HeightState state = seeded(64.0);
+			for (int i = 0; i < 40; i++) {
+				state = RtsCameraMath.filterHeight(state, 64.0, highest, RtsCameraMath.MIN_HEIGHT, TICK, locked);
+				assertTrue(state.y() >= highest + RtsCameraMath.MIN_CLEARANCE,
+						"y " + state.y() + " below clearance, locked=" + locked);
+			}
+		}
+	}
+
+	@Test
+	void dipStillSlowWhileZoomed() {
+		RtsCameraMath.HeightState start = seeded(64.0);
+
+		RtsCameraMath.HeightState state = runZoom(start, 50.0, 50.0, ZOOM / 2.0, 10, false);
+
+		assertTrue(64.0 - state.base() < 14.0 / 2.0);
+		assertEquals(ZOOM / 2.0, state.zoom(), 0.1);
+	}
+
 	@Test
 	void smoothDampIsTimeBased() {
 		RtsCameraMath.Damped half = RtsCameraMath.smoothDamp(100.0, 0.0, 80.0, 1.0, 0.025);
