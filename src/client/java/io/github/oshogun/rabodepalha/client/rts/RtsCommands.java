@@ -36,9 +36,17 @@ public final class RtsCommands {
 	 * @param hint whether and why the mode can be carried out on a hover
 	 * @param fire carries the mode out on a hover; the flag is Shift, which queues the order
 	 * @param staysArmed whether the mode stays armed after firing, for a mode that something else disarms
+	 * @param onArm runs each time the mode gets armed
 	 */
 	public record Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
-			BiConsumer<RtsSelectionClient.Hover, Boolean> fire, boolean staysArmed) implements Action {
+			BiConsumer<RtsSelectionClient.Hover, Boolean> fire, boolean staysArmed, Runnable onArm) implements Action {
+		/** A mode that does nothing extra when armed. */
+		public Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
+				BiConsumer<RtsSelectionClient.Hover, Boolean> fire, boolean staysArmed) {
+			this(hint, fire, staysArmed, () -> {
+			});
+		}
+
 		/** A mode that disarms once fired, unless Shift is held. */
 		public Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
 				BiConsumer<RtsSelectionClient.Hover, Boolean> fire) {
@@ -76,6 +84,9 @@ public final class RtsCommands {
 		}
 	}
 
+	/** The build command's id. */
+	public static final String BUILD = "build";
+
 	public static final List<RtsCommand> COMMANDS = List.of(
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
 			order("mine", () -> new ItemStack(Items.IRON_PICKAXE), InputConstants.KEY_B, RtsOrderKind.MINE),
@@ -91,7 +102,14 @@ public final class RtsCommands {
 			// Withdraw stays armed while the contents view is open; confirming or closing the view disarms it.
 			new RtsCommand("withdraw", () -> new ItemStack(Items.HOPPER), InputConstants.KEY_K,
 					new Armed(RtsOrderHintClient::withdraw, (hover, shift) -> RtsOrdersClient.requestContents(hover),
-							true)));
+							true)),
+			// Build opens the blueprint picker when armed and stays armed for more copies; the picked blueprint is
+			// dropped when the mode disarms.
+			new RtsCommand(BUILD, () -> new ItemStack(Items.BRICKS), InputConstants.KEY_Y,
+					new Armed(RtsOrderHintClient::build, RtsOrdersClient::sendBuild, true, () -> {
+						RtsBlueprintsClient.open();
+						RtsOrdersClient.requestBlueprints(RtsBlueprintsClient.includeVanilla());
+					})));
 
 	private RtsCommands() {
 	}

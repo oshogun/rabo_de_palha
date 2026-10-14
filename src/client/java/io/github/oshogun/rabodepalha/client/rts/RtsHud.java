@@ -1,5 +1,6 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,16 +17,23 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.rts.BlueprintCatalog;
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsAreaDrag;
+import io.github.oshogun.rabodepalha.rts.RtsBlueprintPicker;
+import io.github.oshogun.rabodepalha.rts.RtsBuildMaterials;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
@@ -40,8 +48,8 @@ import io.github.oshogun.rabodepalha.worker.task.TaskSummary;
 /**
  * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
  * would use and what a deposit would put away, what the armed command or a right-click would do at the cursor,
- * the selection box while dragging, the side panel with the watched workers, the withdraw view, and the command
- * bar with its tooltips.
+ * the selection box while dragging, the side panel with the watched workers, the withdraw view, the blueprint
+ * picker and materials panel of the build command, and the command bar with its tooltips.
  */
 public final class RtsHud {
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
@@ -133,12 +141,14 @@ public final class RtsHud {
 		RtsPanel.Hit panelHit = RtsPanelClient.hovered();
 		RtsContainerPanel.Layout view = RtsContainerViewClient.layout();
 		RtsContainerPanel.Hit viewHit = hoveredView(client, view);
+		RtsBlueprintPicker.Layout picker = RtsBlueprintsClient.layout();
+		RtsBlueprintPicker.Hit pickerHit = hoveredPicker(client, picker);
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
 		RtsDigArea digArea = RtsCommandClient.digArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
 		} else if (hover != null && hovered < 0 && panelHit instanceof RtsPanel.Hit.None
-				&& viewHit instanceof RtsContainerPanel.Hit.None) {
+				&& viewHit instanceof RtsContainerPanel.Hit.None && pickerHit instanceof RtsBlueprintPicker.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
 			// already states the reason.
 			RtsOrderHint.Hint hint = RtsCommandClient.currentHint(hover);
@@ -147,7 +157,14 @@ public final class RtsHud {
 			if (armed != null) {
 				text = Component.empty().append(armed.displayName()).append(": ").append(text);
 			}
+			Component blueprint = RtsCommandClient.buildArmed() ? blueprintLabel() : null;
+			if (blueprint != null) {
+				text = Component.empty().append(text).append(" - ").append(blueprint);
+			}
 			leftText(graphics, client, text, y, hint.valid() ? OK_COLOR : HINT_INVALID_COLOR);
+		}
+		if (RtsCommandClient.buildArmed() && RtsBlueprintsClient.isArmed()) {
+			extractMaterials(graphics, client, y + lineHeight);
 		}
 
 		RtsScreenRect rect = RtsSelectionClient.currentDragRect();
@@ -169,7 +186,175 @@ public final class RtsHud {
 		if (view != null) {
 			extractContainerView(graphics, client, view, viewHit);
 		}
+		if (picker != null) {
+			extractPicker(graphics, client, picker, pickerHit);
+		}
 		extractCommandBar(graphics, client, hovered);
+	}
+
+	/** What the mouse cursor is on in the blueprint picker. */
+	private static RtsBlueprintPicker.Hit hoveredPicker(Minecraft client, RtsBlueprintPicker.@Nullable Layout picker) {
+		if (picker == null || client.mouseHandler == null) {
+			return RtsBlueprintPicker.Hit.NONE;
+		}
+		return RtsBlueprintsClient.hitAt(client.mouseHandler.xpos(), client.mouseHandler.ypos());
+	}
+
+	/**
+	 * Draws the blueprint picker: world-saved blueprints with a marker, then pack ones, then vanilla ones with the
+	 * toggle on, a "+N more" row when the server left some out, and the vanilla toggle at the bottom. It shows a
+	 * loading row until the list arrives.
+	 */
+	private static void extractPicker(GuiGraphicsExtractor graphics, Minecraft client, RtsBlueprintPicker.Layout layout,
+			RtsBlueprintPicker.Hit hit) {
+		Font font = client.font;
+		RtsCommandBar.Rect bounds = layout.bounds();
+		graphics.fill(bounds.x(), bounds.y(), bounds.x() + bounds.w(), bounds.y() + bounds.h(), PANEL_COLOR);
+		boolean loaded = RtsBlueprintsClient.listing() != null;
+		List<BlueprintCatalog.Entry> entries = RtsBlueprintsClient.shownEntries();
+		Optional<Identifier> armed = RtsBlueprintsClient.armed();
+		for (int i = 0; i < layout.rows().size(); i++) {
+			RtsCommandBar.Rect row = layout.rows().get(i);
+			int index = layout.first() + i;
+			if (!loaded) {
+				rowText(graphics, font, Component.translatable("rabodepalha.rts.build.picker.loading"), row, row.w(),
+						LABEL_COLOR);
+				continue;
+			}
+			if (index >= entries.size()) {
+				rowText(graphics, font,
+						Component.translatable("rabodepalha.rts.build.picker.more", RtsBlueprintsClient.more()), row,
+						row.w(), LABEL_COLOR);
+				continue;
+			}
+			BlueprintCatalog.Entry entry = entries.get(index);
+			if (hit instanceof RtsBlueprintPicker.Hit.Row r && r.index() == index) {
+				graphics.fill(row.x(), row.y(), row.x() + row.w(), row.y() + row.h(), BUTTON_HOVER_COLOR);
+			} else if (armed.filter(entry.id()::equals).isPresent()) {
+				graphics.fill(row.x(), row.y(), row.x() + row.w(), row.y() + row.h(), PICKED_COLOR);
+			}
+			Component text = Component.literal(entry.id().toString());
+			if (entry.source() == BlueprintCatalog.Source.WORLD) {
+				text = Component.empty().append(text).append(" ")
+						.append(Component.translatable("rabodepalha.rts.build.picker.world").withColor(TASK_COLOR));
+			}
+			rowText(graphics, font, text, row, row.w(),
+					entry.source() == BlueprintCatalog.Source.VANILLA ? LABEL_COLOR : TEXT_COLOR);
+		}
+		RtsCommandBar.Rect toggle = layout.toggle();
+		if (toggle.w() > 0) {
+			if (hit instanceof RtsBlueprintPicker.Hit.Toggle) {
+				graphics.fill(toggle.x(), toggle.y(), toggle.x() + toggle.w(), toggle.y() + toggle.h(),
+						BUTTON_HOVER_COLOR);
+			}
+			Component text = Component.literal(RtsBlueprintsClient.includeVanilla() ? "[x] " : "[ ] ")
+					.append(Component.translatable("rabodepalha.rts.build.picker.vanilla"));
+			rowText(graphics, font, text, toggle, toggle.w(), TEXT_COLOR);
+		}
+	}
+
+	/**
+	 * The armed blueprint for the hint line: its id, its size as rotated (or a loading mark until its info
+	 * arrives) and the rotation in degrees.
+	 */
+	private static @Nullable Component blueprintLabel() {
+		Optional<Identifier> armed = RtsBlueprintsClient.armed();
+		if (armed.isEmpty()) {
+			return null;
+		}
+		Rotation rotation = RtsBlueprintsClient.rotation();
+		RtsBlueprintsClient.Info info = RtsBlueprintsClient.armedInfo();
+		Component size;
+		if (info == null) {
+			size = Component.translatable("rabodepalha.rts.build.hint.loading");
+		} else {
+			BoundingBox box = BlueprintFootprint.box(BlockPos.ZERO, info.size(), rotation);
+			size = Component.literal(box.getXSpan() + "x" + box.getYSpan() + "x" + box.getZSpan());
+		}
+		return Component.translatable("rabodepalha.rts.build.hint.blueprint", armed.get().toString(), size,
+				degrees(rotation));
+	}
+
+	private static int degrees(Rotation rotation) {
+		return switch (rotation) {
+			case NONE -> 0;
+			case CLOCKWISE_90 -> 90;
+			case CLOCKWISE_180 -> 180;
+			case COUNTERCLOCKWISE_90 -> 270;
+		};
+	}
+
+	/**
+	 * Draws the materials panel at the left margin from {@code y}: what the armed blueprint needs against the most
+	 * any one watched selected worker carries, missing rows in the error colour, how many of those workers lack
+	 * something, how many selected workers have no inventory data, and that blocks already in place lower the real
+	 * needs. Rows that don't fit above the command bar are cut to a "+N more" line.
+	 */
+	private static void extractMaterials(GuiGraphicsExtractor graphics, Minecraft client, int y) {
+		record Line(Component text, int color) {
+		}
+		Font font = client.font;
+		int lineHeight = font.lineHeight + 2;
+		RtsBlueprintsClient.Info info = RtsBlueprintsClient.armedInfo();
+		List<Line> rows = new ArrayList<>();
+		List<Line> footer = new ArrayList<>();
+		if (info == null) {
+			footer.add(new Line(Component.translatable("rabodepalha.rts.build.materials.loading"), LABEL_COLOR));
+		} else {
+			List<List<ItemStack>> inventories = new ArrayList<>();
+			for (int id : RtsSnapshotsClient.watched()) {
+				WorkerSnapshot snapshot = RtsSnapshotsClient.get(id);
+				if (snapshot != null) {
+					inventories.add(snapshot.inventory());
+				}
+			}
+			RtsBuildMaterials.Report report = RtsBuildMaterials.compare(info.needed(), inventories);
+			for (RtsBuildMaterials.Row row : report.rows()) {
+				rows.add(new Line(Component.translatable("rabodepalha.rts.build.materials.row",
+						new ItemStack(row.item()).getHoverName(), row.needed(), row.bestHave()),
+						row.missing() ? ERROR_COLOR : TEXT_COLOR));
+			}
+			if (report.rows().isEmpty()) {
+				footer.add(new Line(Component.translatable("rabodepalha.rts.build.materials.none"), LABEL_COLOR));
+			}
+			int lacking = report.workersChecked() - report.workersReady();
+			if (lacking > 0) {
+				footer.add(new Line(Component.translatable("rabodepalha.rts.build.materials.missing", lacking,
+						report.workersChecked()), ERROR_COLOR));
+			}
+			int unchecked = RtsSelectionClient.count() - report.workersChecked();
+			if (unchecked > 0) {
+				footer.add(new Line(Component.translatable("rabodepalha.rts.build.materials.unchecked", unchecked),
+						LABEL_COLOR));
+			}
+			footer.add(new Line(Component.translatable("rabodepalha.rts.build.materials.in_place"), LABEL_COLOR));
+		}
+
+		List<Line> lines = new ArrayList<>();
+		lines.add(new Line(Component.translatable("rabodepalha.rts.build.materials.title"), LABEL_COLOR));
+		int fits = (RtsPanel.maxBottom(client.getWindow().getGuiScaledHeight()) - y) / lineHeight;
+		int rowRoom = Math.max(0, fits - 1 - footer.size());
+		if (rows.size() > rowRoom) {
+			// One row gives way to the "+N more" line.
+			int shown = Math.max(0, rowRoom - 1);
+			lines.addAll(rows.subList(0, shown));
+			lines.add(new Line(Component.translatable("rabodepalha.rts.panel.more", rows.size() - shown),
+					LABEL_COLOR));
+		} else {
+			lines.addAll(rows);
+		}
+		lines.addAll(footer);
+
+		int width = 0;
+		for (Line line : lines) {
+			width = Math.max(width, font.width(line.text()));
+		}
+		width = Math.min(width, leftMaxWidth);
+		graphics.fill(MARGIN - 2, y - 2, MARGIN + width + 2, y + lines.size() * lineHeight, PANEL_COLOR);
+		for (Line line : lines) {
+			leftText(graphics, client, line.text(), y, line.color());
+			y += lineHeight;
+		}
 	}
 
 	/** Draws {@code text} at the left margin, cut to {@link #leftMaxWidth}. */

@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.client.rts.RtsBlueprintOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsDigOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsHoverOverlay;
@@ -18,6 +19,7 @@ public class RaboDePalhaClient implements ClientModInitializer {
 		RtsHud.init();
 		RtsHoverOverlay.init();
 		RtsDigOverlay.init();
+		RtsBlueprintOverlay.init();
 		RaboDePalha.LOGGER.info("Rabo-de-palha client initialized");
 	}
 }

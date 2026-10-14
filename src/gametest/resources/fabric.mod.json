@@ -15,6 +15,7 @@
 			"io.github.oshogun.rabodepalha.gametest.RtsOrderGameTest",
 			"io.github.oshogun.rabodepalha.gametest.RtsCommandGameTest",
 			"io.github.oshogun.rabodepalha.gametest.RtsDigGameTest",
+			"io.github.oshogun.rabodepalha.gametest.RtsBuildGameTest",
 			"io.github.oshogun.rabodepalha.gametest.RtsPanelGameTest",
 			"io.github.oshogun.rabodepalha.gametest.RtsContainerGameTest"
 		]

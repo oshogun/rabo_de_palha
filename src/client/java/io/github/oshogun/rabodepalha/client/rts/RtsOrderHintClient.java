@@ -14,6 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
@@ -86,6 +87,33 @@ public final class RtsOrderHintClient {
 			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
 		}
 		return new RtsOrderHint.Hint("rabodepalha.rts.dig.hint.start", true, null);
+	}
+
+	/**
+	 * Building the armed blueprint at the hovered block: it needs a selection, a picked blueprint whose info has
+	 * arrived, and a footprint the server would accept. The hint has no kind and uses its key as is.
+	 */
+	public static RtsOrderHint.Hint build(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (!RtsBlueprintsClient.isArmed()) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.build.hint.pick", false, null);
+		}
+		RtsBlueprintsClient.Info info = RtsBlueprintsClient.armedInfo();
+		if (info == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.build.hint.loading", false, null);
+		}
+		BlockPos origin = RtsOrdersClient.buildOrigin(hover);
+		if (origin == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		String problem = RtsOrdersClient.buildProblemKey(
+				BlueprintFootprint.box(origin, info.size(), RtsBlueprintsClient.rotation()));
+		if (problem != null) {
+			return new RtsOrderHint.Hint(problem, false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.build.hint.place", true, null);
 	}
 
 	/** Depositing into the hovered container: everything, or only the picked item. */

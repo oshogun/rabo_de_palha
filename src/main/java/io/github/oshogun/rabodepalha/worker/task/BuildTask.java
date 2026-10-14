@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.oshogun.rabodepalha.mixin.StructureTemplateAccessor;
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
@@ -30,7 +31,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.LadderBlock;
-import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
@@ -136,14 +136,7 @@ public final class BuildTask implements Task<WorkerEntity> {
 		if (template.isEmpty()) {
 			return TaskOutcome.failed(FailureReason.ERROR, "unknown blueprint " + blueprint);
 		}
-		List<StructureTemplate.Palette> palettes = ((StructureTemplateAccessor) template.get()).rabodepalha$getPalettes();
-		Map<BlockPos, BlockState> rotated = new LinkedHashMap<>();
-		if (!palettes.isEmpty()) {
-			for (StructureTemplate.StructureBlockInfo info : palettes.get(0).blocks()) {
-				BlockPos pos = origin.offset(StructureTemplate.transform(info.pos(), Mirror.NONE, rotation, BlockPos.ZERO));
-				rotated.put(pos, info.state().rotate(rotation));
-			}
-		}
+		Map<BlockPos, BlockState> rotated = blocks(template.get(), origin, rotation);
 
 		List<Entry> toPlace = new ArrayList<>();
 		List<String> unplaceableList = new ArrayList<>();
@@ -193,6 +186,36 @@ public final class BuildTask implements Task<WorkerEntity> {
 			queue.add(byPos.get(entry.pos()));
 		}
 		return null;
+	}
+
+	/** The template's first palette with each block turned by {@code rotation} and moved into the world at {@code origin}. */
+	private static Map<BlockPos, BlockState> blocks(StructureTemplate template, BlockPos origin, Rotation rotation) {
+		List<StructureTemplate.Palette> palettes = ((StructureTemplateAccessor) template).rabodepalha$getPalettes();
+		Map<BlockPos, BlockState> rotated = new LinkedHashMap<>();
+		if (!palettes.isEmpty()) {
+			for (StructureTemplate.StructureBlockInfo info : palettes.get(0).blocks()) {
+				BlockPos pos = BlueprintFootprint.toWorld(origin, info.pos(), rotation);
+				rotated.put(pos, info.state().rotate(rotation));
+			}
+		}
+		return rotated;
+	}
+
+	/**
+	 * The items building {@code template} takes when nothing of it is in place yet, by item, without
+	 * looking at any world: an upper bound on what {@link #plan} asks each worker to carry, since blocks
+	 * already in place are not needed.
+	 */
+	public static Map<Item, Integer> materials(StructureTemplate template) {
+		return materials(blocks(template, BlockPos.ZERO, Rotation.NONE));
+	}
+
+	/** Counts the item of every normalized entry of {@code blueprint}, as {@link #plan} does; ignored and unplaceable entries take nothing. */
+	static Map<Item, Integer> materials(Map<BlockPos, BlockState> blueprint) {
+		Map<Item, Integer> needed = new LinkedHashMap<>();
+		blueprint.forEach((pos, state) -> normalize(state, pos, blueprint)
+				.ifPresent(normalized -> needed.merge(normalized.state().getBlock().asItem(), 1, Integer::sum)));
+		return needed;
 	}
 
 	/**

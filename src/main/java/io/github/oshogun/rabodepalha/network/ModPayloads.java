@@ -23,11 +23,19 @@ public final class ModPayloads {
 		PayloadTypeRegistry.serverboundPlay().register(RtsWithdrawPayload.TYPE, RtsWithdrawPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsContentsRequestPayload.TYPE,
 				RtsContentsRequestPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsBlueprintsRequestPayload.TYPE,
+				RtsBlueprintsRequestPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsBlueprintInfoRequestPayload.TYPE,
+				RtsBlueprintInfoRequestPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsBuildPayload.TYPE, RtsBuildPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsStatePayload.TYPE, RtsStatePayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsOrderFeedbackPayload.TYPE,
 				RtsOrderFeedbackPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsSnapshotPayload.TYPE, RtsSnapshotPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsContentsPayload.TYPE, RtsContentsPayload.STREAM_CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(RtsBlueprintsPayload.TYPE, RtsBlueprintsPayload.STREAM_CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(RtsBlueprintInfoPayload.TYPE,
+				RtsBlueprintInfoPayload.STREAM_CODEC);
 
 		// Play receivers run on the server thread, so RtsMode may touch the player directly.
 		ServerPlayNetworking.registerGlobalReceiver(RtsTogglePayload.TYPE,
@@ -50,5 +58,11 @@ public final class ModPayloads {
 				(payload, context) -> RtsOrders.handleWithdraw(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsContentsRequestPayload.TYPE,
 				(payload, context) -> RtsOrders.handleContents(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsBlueprintsRequestPayload.TYPE,
+				(payload, context) -> RtsOrders.handleBlueprints(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsBlueprintInfoRequestPayload.TYPE,
+				(payload, context) -> RtsOrders.handleBlueprintInfo(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsBuildPayload.TYPE,
+				(payload, context) -> RtsOrders.handleBuild(context.player(), payload));
 	}
 }

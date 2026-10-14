@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.jspecify.annotations.Nullable;
 
@@ -12,9 +13,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import io.github.oshogun.rabodepalha.network.RtsBlueprintInfoRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintsRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsBuildPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
@@ -23,6 +28,7 @@ import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
@@ -131,6 +137,96 @@ public final class RtsOrdersClient {
 					cz++) {
 				if (!level.hasChunk(cx, cz)) {
 					return Component.translatable("rabodepalha.rts.order.not_loaded");
+				}
+			}
+		}
+		return null;
+	}
+
+	/** Asks the server for the blueprint list; the reply fills the picker. */
+	public static void requestBlueprints(boolean includeVanilla) {
+		if (ClientPlayNetworking.canSend(RtsBlueprintsRequestPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsBlueprintsRequestPayload(includeVanilla));
+		}
+	}
+
+	/** Asks the server for one blueprint's size and materials. */
+	public static void requestBlueprintInfo(Identifier id) {
+		if (ClientPlayNetworking.canSend(RtsBlueprintInfoRequestPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsBlueprintInfoRequestPayload(id));
+		}
+	}
+
+	/** The block a build preview is anchored to: the one next to the clicked face. */
+	public static BlockPos anchor(BlockHitResult hit) {
+		return hit.getBlockPos().relative(hit.getDirection());
+	}
+
+	/**
+	 * The origin to send for the armed blueprint at {@code hover}, chosen so the turned box's minimum X/Z corner
+	 * sits on the anchor block; null without a hovered block or before the blueprint's info arrives.
+	 */
+	public static @Nullable BlockPos buildOrigin(RtsSelectionClient.Hover hover) {
+		BlockHitResult hit = hover.block();
+		RtsBlueprintsClient.Info info = RtsBlueprintsClient.armedInfo();
+		if (hit == null || info == null) {
+			return null;
+		}
+		return BlueprintFootprint.originFor(anchor(hit), info.size(), RtsBlueprintsClient.rotation());
+	}
+
+	/**
+	 * Builds the armed blueprint at {@code hover} with the selected workers, like
+	 * {@code /rdp build <origin> <blueprint> [rotation]}. The caller has checked {@link #buildProblem}; the server
+	 * repeats every check.
+	 */
+	public static void sendBuild(RtsSelectionClient.Hover hover, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		BlockPos origin = buildOrigin(hover);
+		Optional<Identifier> blueprint = RtsBlueprintsClient.armed();
+		if (origin == null || blueprint.isEmpty()) {
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsBuildPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsBuildPayload(RtsSelectionClient.selectedIds(), origin, blueprint.get(),
+					RtsBlueprintsClient.rotation(), shift));
+		}
+	}
+
+	/**
+	 * Why the server would reject building over {@code box}, or {@code null} when the client sees no problem. The
+	 * checks follow the server's order.
+	 */
+	public static @Nullable Component buildProblem(BoundingBox box) {
+		String key = buildProblemKey(box);
+		return key == null ? null : Component.translatable(key);
+	}
+
+	/** The translation key of {@link #buildProblem}, or {@code null} when the client sees no problem. */
+	public static @Nullable String buildProblemKey(BoundingBox box) {
+		Minecraft client = Minecraft.getInstance();
+		LocalPlayer player = client.player;
+		ClientLevel level = client.level;
+		if (player == null || level == null) {
+			return "rabodepalha.rts.order.not_loaded";
+		}
+		if (level.isOutsideBuildHeight(box.minY()) || level.isOutsideBuildHeight(box.maxY())) {
+			return "rabodepalha.rts.order.area_out_of_world";
+		}
+		Vec3 eye = player.getEyePosition();
+		RtsDigArea area = new RtsDigArea(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z)
+				> RtsOrders.MAX_TARGET_DISTANCE * RtsOrders.MAX_TARGET_DISTANCE) {
+			return "rabodepalha.rts.order.target_too_far";
+		}
+		for (int cx = SectionPos.blockToSectionCoord(box.minX()); cx <= SectionPos.blockToSectionCoord(box.maxX()); cx++) {
+			for (int cz = SectionPos.blockToSectionCoord(box.minZ()); cz <= SectionPos.blockToSectionCoord(box.maxZ());
+					cz++) {
+				if (!level.hasChunk(cx, cz)) {
+					return "rabodepalha.rts.order.not_loaded";
 				}
 			}
 		}

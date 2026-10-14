@@ -13,12 +13,16 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.SectionPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintInfoPayload;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintsPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsSnapshotPayload;
@@ -44,6 +48,8 @@ public final class RtsClient {
 
 	/** Toggles freezing the camera height while panning. */
 	public static KeyMapping lockHeightKey;
+	/** Turns the armed blueprint by 90 degrees; not Q/E, which turn the camera. */
+	public static KeyMapping rotateBlueprintKey;
 
 	/** Time step assumed for the first tick, when there is no previous tick to measure from. */
 	private static final double DEFAULT_TICK_DT = 0.05;
@@ -81,6 +87,8 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_Z, CATEGORY));
 		lockHeightKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_lock_height",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_H, CATEGORY));
+		rotateBlueprintKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_rotate_blueprint",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_U, CATEGORY));
 		commandKeys = RtsCommands.COMMANDS.stream()
 				.map(command -> KeyMappingHelper.registerKeyMapping(new KeyMapping(command.keyMappingName(),
 						InputConstants.Type.KEYBOARD, command.defaultKey(), CATEGORY)))
@@ -89,17 +97,31 @@ public final class RtsClient {
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
 		ClientPlayNetworking.registerGlobalReceiver(RtsOrderFeedbackPayload.TYPE,
-				(payload, context) -> RtsHud.showFeedback(payload.ok(), payload.message()));
+				(payload, context) -> {
+					if (isUnknownBlueprint(payload.message())) {
+						RtsBlueprintsClient.clearPending();
+					}
+					RtsHud.showFeedback(payload.ok(), payload.message());
+				});
 		ClientPlayNetworking.registerGlobalReceiver(RtsSnapshotPayload.TYPE,
 				(payload, context) -> RtsSnapshotsClient.accept(payload));
 		ClientPlayNetworking.registerGlobalReceiver(RtsContentsPayload.TYPE,
 				(payload, context) -> RtsContainerViewClient.open(payload.pos(), payload.entries()));
+		ClientPlayNetworking.registerGlobalReceiver(RtsBlueprintsPayload.TYPE,
+				(payload, context) -> RtsBlueprintsClient.accept(payload));
+		ClientPlayNetworking.registerGlobalReceiver(RtsBlueprintInfoPayload.TYPE,
+				(payload, context) -> RtsBlueprintsClient.acceptInfo(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(RtsClient::tick);
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> reset());
 	}
 
 	public static boolean isActive() {
 		return active;
+	}
+
+	private static boolean isUnknownBlueprint(Component message) {
+		return message.getContents() instanceof TranslatableContents contents
+				&& contents.getKey().equals("rabodepalha.rts.order.unknown_blueprint");
 	}
 
 	/** Zooms by {@code wheelDelta} notches towards the screen centre; scrolling up lowers the camera. */
@@ -137,6 +159,7 @@ public final class RtsClient {
 		active = value;
 		RtsSelectionClient.clear();
 		RtsCommandClient.clear();
+		RtsBlueprintsClient.resetSession();
 		if (!value) {
 			RtsSnapshotsClient.clear();
 			RtsItemPickClient.clear();
@@ -160,6 +183,7 @@ public final class RtsClient {
 		RtsSnapshotsClient.clear();
 		RtsItemPickClient.clear();
 		RtsContainerViewClient.close();
+		RtsBlueprintsClient.resetSession();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
 		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
@@ -189,6 +213,9 @@ public final class RtsClient {
 			while (lockHeightKey.consumeClick()) {
 				// Drop presses made outside RTS mode.
 			}
+			while (rotateBlueprintKey.consumeClick()) {
+				// Drop presses made outside RTS mode.
+			}
 			dropCommandPresses();
 			RtsCommandClient.clear();
 			return;
@@ -211,6 +238,11 @@ public final class RtsClient {
 				KeyMapping key = commandKeys.get(i);
 				while (key.consumeClick()) {
 					RtsCommandClient.activate(RtsCommands.COMMANDS.get(i));
+				}
+			}
+			while (rotateBlueprintKey.consumeClick()) {
+				if (RtsBlueprintsClient.isArmed()) {
+					RtsBlueprintsClient.cycleRotation();
 				}
 			}
 		}

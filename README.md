@@ -65,9 +65,9 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
 - Orders: with workers selected, right-click a block to send them there (move). A command bar at
   the bottom centre of the screen (it scales with the GUI scale) has buttons for Move, Mine, Place,
-  Dig, Stop, Spawn worker, Deposit and Withdraw; hovering a button shows its name and hotkey. The
+  Dig, Build, Stop, Spawn worker, Deposit and Withdraw; hovering a button shows its name and hotkey. The
   hotkeys are `M` (Move), `B` (Mine), `V` (Place), `C` (Dig), `G` (Stop), `N` (Spawn worker), `J`
-  (Deposit) and `K` (Withdraw), all rebindable. Clicks on the bar
+  (Deposit), `K` (Withdraw) and `Y` (Build), all rebindable. Clicks on the bar
   never select or order anything behind it.
   - Move, Mine, Place, Spawn worker, Deposit and Withdraw arm a mode; the next left-click on a block
     carries it out. Pressing the same button or hotkey again disarms it.
@@ -89,6 +89,14 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
     the area and keeps Dig armed; a second press disarms it. The area is drawn as a box with its
     size and volume (e.g. `12×8×3 = 288`); the box turns red when the area is invalid: over 4096
     blocks, beyond 128 blocks, outside the world height or over unloaded chunks.
+  - Build (`Y` or the Build button) opens a blueprint picker (saved-in-world templates first, then
+    pack ones; tick the toggle to also list vanilla structures). The picked blueprint stays armed.
+    A box shows the footprint at the hovered block, using the same origin and rotation as
+    `/rdp build`; the hovered block becomes the footprint's lowest corner after rotation. `U` cycles
+    the rotation through 0/90/180/270 (rebindable). The box is red when too far (128 blocks) or over
+    unloaded chunks. A materials panel lists what the blueprint needs against the best single
+    selected worker's inventory and warns when workers lack items. Left-click orders the build;
+    `Shift`-click appends. No ghost blocks yet, only the box.
   - `Shift`-click appends to each worker's queue and keeps the mode armed for the next target;
     otherwise the queue is replaced and the mode disarms. An invalid target keeps the mode armed
     and shows the reason. Right-click or `Esc` disarms the mode (`Esc` disarms before it clears

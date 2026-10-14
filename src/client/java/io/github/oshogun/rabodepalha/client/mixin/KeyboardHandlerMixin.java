@@ -11,13 +11,14 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import io.github.oshogun.rabodepalha.client.rts.RtsBlueprintsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsCommandClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsContainerViewClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 
 /**
- * In RTS mode Escape first cancels a selection drag, then closes the withdraw view, then disarms the armed command, then clears the selection, and only pauses the
+ * In RTS mode Escape first cancels a selection drag, then closes the blueprint picker, then the withdraw view, then disarms the armed command, then clears the selection, and only pauses the
  * game once there is nothing left to clear.
  */
 @Mixin(KeyboardHandler.class)
@@ -40,7 +41,8 @@ abstract class KeyboardHandlerMixin {
 		if (RtsSelectionClient.isDragging()) {
 			RtsSelectionClient.cancelDrag();
 			ci.cancel();
-		} else if (RtsContainerViewClient.onEscape() || RtsCommandClient.onEscape()) {
+		} else if (RtsBlueprintsClient.onEscape() || RtsContainerViewClient.onEscape()
+				|| RtsCommandClient.onEscape()) {
 			ci.cancel();
 		} else if (!RtsSelectionClient.isEmpty()) {
 			RtsSelectionClient.clear();

@@ -1,12 +1,19 @@
 package io.github.oshogun.rabodepalha.rts;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import io.github.oshogun.rabodepalha.network.RtsBlueprintInfoPayload;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintInfoRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintsPayload;
+import io.github.oshogun.rabodepalha.network.RtsBlueprintsRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsBuildPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
@@ -22,6 +29,7 @@ import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
+import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.Containers;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
@@ -36,9 +44,11 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.resources.Identifier;
@@ -47,7 +57,10 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -256,6 +269,106 @@ public final class RtsOrders {
 		return new ContentsResult(new Result(true, 0, Component.empty()), entries);
 	}
 
+	/** Entry point for the client's blueprint list request. */
+	public static BlueprintsResult handleBlueprints(ServerPlayer player, RtsBlueprintsRequestPayload payload) {
+		return handleBlueprints(player, payload, player.permissions());
+	}
+
+	/**
+	 * Answers with the blueprint ids and sources of {@link BlueprintCatalog} when the player may give orders, or
+	 * with the feedback only on rejection. Loads no template.
+	 */
+	public static BlueprintsResult handleBlueprints(ServerPlayer player, RtsBlueprintsRequestPayload payload,
+			PermissionSet permissions) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			sendFeedback(player, playerProblem);
+			return new BlueprintsResult(playerProblem, new BlueprintCatalog.Listing(List.of(), 0));
+		}
+		BlueprintCatalog.Listing listing = BlueprintCatalog.list(player.level().getServer(), payload.includeVanilla());
+		if (ServerPlayNetworking.canSend(player, RtsBlueprintsPayload.TYPE)) {
+			ServerPlayNetworking.send(player, RtsBlueprintsPayload.of(listing, payload.includeVanilla()));
+		}
+		return new BlueprintsResult(new Result(true, 0, Component.empty()), listing);
+	}
+
+	/** A blueprint list request's outcome and, when it is ok, the listing sent. */
+	public record BlueprintsResult(Result result, BlueprintCatalog.Listing listing) {
+	}
+
+	/** Entry point for the client's blueprint info request. */
+	public static BlueprintInfoResult handleBlueprintInfo(ServerPlayer player, RtsBlueprintInfoRequestPayload payload) {
+		return handleBlueprintInfo(player, payload, player.permissions());
+	}
+
+	/**
+	 * Answers with one blueprint's size and materials when the player may give orders and the blueprint exists,
+	 * or with the feedback only on rejection.
+	 */
+	public static BlueprintInfoResult handleBlueprintInfo(ServerPlayer player, RtsBlueprintInfoRequestPayload payload,
+			PermissionSet permissions) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			sendFeedback(player, playerProblem);
+			return new BlueprintInfoResult(playerProblem, Optional.empty());
+		}
+		Optional<RtsBlueprintInfoPayload> info = blueprintInfo(player.level().getServer(), payload.id());
+		if (info.isEmpty()) {
+			Result unknown = reject("rabodepalha.rts.order.unknown_blueprint");
+			sendFeedback(player, unknown);
+			return new BlueprintInfoResult(unknown, Optional.empty());
+		}
+		if (ServerPlayNetworking.canSend(player, RtsBlueprintInfoPayload.TYPE)) {
+			ServerPlayNetworking.send(player, info.get());
+		}
+		return new BlueprintInfoResult(new Result(true, 0, Component.empty()), info);
+	}
+
+	/** A blueprint info request's outcome and, when it is ok, the info sent. */
+	public record BlueprintInfoResult(Result result, Optional<RtsBlueprintInfoPayload> info) {
+	}
+
+	/**
+	 * The size and materials of blueprint {@code id}, most needed first and capped at
+	 * {@link RtsBlueprintInfoPayload#MAX_MATERIALS}; empty for unknown ids. Loads the template.
+	 */
+	public static Optional<RtsBlueprintInfoPayload> blueprintInfo(MinecraftServer server, Identifier id) {
+		Optional<StructureTemplate> template = server.getStructureTemplateManager().get(id);
+		if (template.isEmpty()) {
+			return Optional.empty();
+		}
+		List<RtsBlueprintInfoPayload.Material> materials = new ArrayList<>();
+		for (Map.Entry<Item, Integer> entry : BuildTask.materials(template.get()).entrySet()) {
+			materials.add(new RtsBlueprintInfoPayload.Material(entry.getKey(), entry.getValue()));
+		}
+		materials.sort(Comparator.comparingInt(RtsBlueprintInfoPayload.Material::count).reversed()
+				.thenComparing(material -> BuiltInRegistries.ITEM.getKey(material.item())));
+		List<RtsBlueprintInfoPayload.Material> capped =
+				materials.subList(0, Math.min(materials.size(), RtsBlueprintInfoPayload.MAX_MATERIALS));
+		return Optional.of(new RtsBlueprintInfoPayload(id, template.get().getSize(), capped));
+	}
+
+	/** Entry point for the client's build order. */
+	public static Result handleBuild(ServerPlayer player, RtsBuildPayload payload) {
+		return handleBuild(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link BuildTask} of the payload's blueprint at its origin and rotation, like
+	 * {@code /rdp build <origin> <blueprint> [rotation]}, then sends the feedback. The origin is the template's
+	 * (0,0,0) corner, used verbatim. The whole order is rejected when the blueprint is unknown, or its footprint is
+	 * outside the world, too far from the player's eyes or not loaded.
+	 */
+	public static Result handleBuild(ServerPlayer player, RtsBuildPayload payload, PermissionSet permissions) {
+		return handleBuild(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleBuild(ServerPlayer, RtsBuildPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleBuild(ServerPlayer player, RtsBuildPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyBuild(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
 	private static Result sendFeedback(ServerPlayer player, Result result) {
 		if (ServerPlayNetworking.canSend(player, RtsOrderFeedbackPayload.TYPE)) {
 			ServerPlayNetworking.send(player, new RtsOrderFeedbackPayload(result.ok(), result.message()));
@@ -356,6 +469,61 @@ public final class RtsOrders {
 				payload.append() ? "rabodepalha.rts.order.dig_queued" : "rabodepalha.rts.order.dig_replaced",
 				area.sizeX(), area.sizeZ(), area.sizeY(), workers.valid().size());
 		return assign(player, workers, payload.append(), () -> new DigAreaTask(min, max), applied);
+	}
+
+	private static Result applyBuild(ServerPlayer player, RtsBuildPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+
+		ServerLevel level = player.level();
+		Identifier blueprint = payload.blueprint();
+		Optional<StructureTemplate> template = level.getServer().getStructureTemplateManager().get(blueprint);
+		if (template.isEmpty()) {
+			return reject("rabodepalha.rts.order.unknown_blueprint");
+		}
+		BlockPos origin = payload.origin().immutable();
+		Rotation rotation = payload.rotation();
+		Vec3i size = template.get().getSize();
+		BoundingBox box = BlueprintFootprint.box(origin, size, rotation);
+		RtsDigArea area = RtsDigArea.between(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+		if (level.isOutsideBuildHeight(area.minY()) || level.isOutsideBuildHeight(area.maxY())) {
+			return reject("rabodepalha.rts.order.area_out_of_world");
+		}
+		Vec3 eye = player.getEyePosition();
+		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z) > maxTargetDistance * maxTargetDistance) {
+			return reject("rabodepalha.rts.order.target_too_far");
+		}
+		if (!level.hasChunksAt(area.minX(), area.minZ(), area.maxX(), area.maxZ())) {
+			return reject("rabodepalha.rts.order.not_loaded");
+		}
+
+		Workers workers = resolveWorkers(level, ids, new Vec3(area.centerX(), area.centerY(), area.centerZ()),
+				maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		// Args: blueprint id, origin x/y/z, rotation in degrees, worker count.
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.build_queued" : "rabodepalha.rts.order.build_replaced",
+				blueprint.toString(), origin.getX(), origin.getY(), origin.getZ(), degrees(rotation),
+				workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new BuildTask(origin, blueprint, rotation), applied);
+	}
+
+	private static int degrees(Rotation rotation) {
+		return switch (rotation) {
+			case NONE -> 0;
+			case CLOCKWISE_90 -> 90;
+			case CLOCKWISE_180 -> 180;
+			case COUNTERCLOCKWISE_90 -> 270;
+		};
 	}
 
 	private static Result applyDeposit(ServerPlayer player, RtsDepositPayload payload, PermissionSet permissions,

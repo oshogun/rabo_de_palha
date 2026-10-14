@@ -41,6 +41,23 @@ public final class RtsCommandClient {
 	private static void arm(RtsCommands.RtsCommand command) {
 		DRAG.cancel();
 		STATE.arm(command);
+		dropBlueprintUnlessBuild();
+		if (STATE.armed() == command && command.action() instanceof RtsCommands.Armed armed) {
+			armed.onArm().run();
+		}
+	}
+
+	/** Whether the build command is armed. */
+	public static boolean buildArmed() {
+		RtsCommands.RtsCommand command = STATE.armed();
+		return command != null && command.id().equals(RtsCommands.BUILD);
+	}
+
+	/** Drops the picked blueprint and closes the picker once the build command is no longer armed. */
+	private static void dropBlueprintUnlessBuild() {
+		if (!buildArmed()) {
+			RtsBlueprintsClient.clear();
+		}
 	}
 
 	/**
@@ -73,6 +90,7 @@ public final class RtsCommandClient {
 		if (STATE.onLeftClick(hint.valid(), shift || armed.staysArmed()) != null) {
 			armed.fire().accept(hover, shift);
 		}
+		dropBlueprintUnlessBuild();
 		return true;
 	}
 
@@ -161,7 +179,9 @@ public final class RtsCommandClient {
 	 * Returns true if it did either; false means the caller sends a plain move.
 	 */
 	public static boolean onRightClick() {
-		return DRAG.cancel() || STATE.onRightClick();
+		boolean handled = DRAG.cancel() || STATE.onRightClick();
+		dropBlueprintUnlessBuild();
+		return handled;
 	}
 
 	/**
@@ -169,7 +189,9 @@ public final class RtsCommandClient {
 	 * if it did either, which consumes the key.
 	 */
 	public static boolean onEscape() {
-		return DRAG.cancel() || STATE.onEscape();
+		boolean handled = DRAG.cancel() || STATE.onEscape();
+		dropBlueprintUnlessBuild();
+		return handled;
 	}
 
 	/** The armed command, or null. */
@@ -217,6 +239,7 @@ public final class RtsCommandClient {
 	public static void clear() {
 		DRAG.cancel();
 		STATE.disarm();
+		RtsBlueprintsClient.clear();
 	}
 
 	private static int buttonAt(double x, double y) {
