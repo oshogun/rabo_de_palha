@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -24,6 +25,7 @@ import io.netty.buffer.Unpooled;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -32,6 +34,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -61,33 +64,33 @@ class TaskSummaryTest {
 
 	@Test
 	void mine() {
-		assertSummary(TaskTypes.summarize(new MineTask(POS)), "rabodepalha.task.mine", List.of(literal(POS)), List.of());
+		assertSummary(TaskTypes.summarize(new MineTask(POS)), "rabodepalha.task.mine", List.of(literal(POS)), List.of(POS));
 	}
 
 	@Test
 	void placeUsesTranslatableBlockName() {
 		TaskSummary summary = TaskTypes.summarize(new PlaceTask(POS, Blocks.OAK_PLANKS.defaultBlockState()));
-		assertSummary(summary, "rabodepalha.task.place", List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of());
+		assertSummary(summary, "rabodepalha.task.place", List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of(POS));
 	}
 
 	@Test
 	void depositWithoutItem() {
 		TaskSummary summary = TaskTypes.summarize(new DepositTask(POS, Optional.empty()));
-		assertSummary(summary, "rabodepalha.task.deposit", List.of(literal(POS)), List.of());
+		assertSummary(summary, "rabodepalha.task.deposit", List.of(literal(POS)), List.of(POS));
 	}
 
 	@Test
 	void depositWithItem() {
 		TaskSummary summary = TaskTypes.summarize(new DepositTask(POS, Optional.of(BuiltInRegistries.ITEM.getKey(Items.DIRT))));
 		assertSummary(summary, "rabodepalha.task.deposit_item",
-				List.of(Component.translatable(Items.DIRT.getDescriptionId()), literal(POS)), List.of());
+				List.of(Component.translatable(Items.DIRT.getDescriptionId()), literal(POS)), List.of(POS));
 	}
 
 	@Test
 	void withdrawUsesTranslatableItemName() {
 		TaskSummary summary = TaskTypes.summarize(new WithdrawTask(POS, BuiltInRegistries.ITEM.getKey(Items.COBBLESTONE), 5));
 		assertSummary(summary, "rabodepalha.task.withdraw",
-				List.of(Component.literal("5"), Component.translatable(Items.COBBLESTONE.getDescriptionId()), literal(POS)), List.of());
+				List.of(Component.literal("5"), Component.translatable(Items.COBBLESTONE.getDescriptionId()), literal(POS)), List.of(POS));
 	}
 
 	@Test
@@ -112,6 +115,29 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void buildWithKnownBlueprintTargetsOriginAndFootprint() {
+		Identifier blueprint = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
+		Vec3i size = new Vec3i(2, 3, 4);
+		TaskTypes.BlueprintSizes sizes = id -> id.equals(blueprint) ? Optional.of(size) : Optional.empty();
+		for (Rotation rotation : Rotation.values()) {
+			TaskSummary summary = TaskTypes.summarize(new BuildTask(POS, blueprint, rotation), sizes);
+			BoundingBox box = BlueprintFootprint.box(POS, size, rotation);
+			assertEquals(List.of(POS, new BlockPos(box.minX(), box.minY(), box.minZ()),
+					new BlockPos(box.maxX(), box.maxY(), box.maxZ())), summary.targets(), "rotation " + rotation);
+		}
+		// Turned 90° clockwise, a 2 wide, 4 deep template extends 3 blocks west of the origin.
+		TaskSummary turned = TaskTypes.summarize(new BuildTask(POS, blueprint, Rotation.CLOCKWISE_90), sizes);
+		assertEquals(List.of(POS, POS.offset(-3, 0, 0), POS.offset(0, 2, 1)), turned.targets());
+	}
+
+	@Test
+	void buildWithUnknownBlueprintTargetsOrigin() {
+		Identifier blueprint = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
+		TaskSummary summary = TaskTypes.summarize(new BuildTask(POS, blueprint, Rotation.NONE), id -> Optional.empty());
+		assertEquals(List.of(POS), summary.targets());
+	}
+
+	@Test
 	void unknownTypeFallsBack() {
 		TaskSummary summary = TaskTypes.summarize(new UnknownTask());
 		assertSummary(summary, "rabodepalha.task.unknown", List.of(Component.literal("no_such_type")), List.of());
@@ -126,7 +152,7 @@ class TaskSummaryTest {
 	@Test
 	void streamCodecRoundTrips() {
 		TaskSummary summary = new TaskSummary("rabodepalha.task.place",
-				List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of(POS, OTHER));
+				List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of(POS, OTHER, BlockPos.ZERO));
 		assertEquals(summary, roundTrip(summary));
 	}
 
@@ -134,9 +160,11 @@ class TaskSummaryTest {
 	void capsTruncate() {
 		List<Component> args = List.of(Component.literal("a"), Component.literal("b"), Component.literal("c"),
 				Component.literal("d"), Component.literal("e"));
-		TaskSummary summary = new TaskSummary("rabodepalha.task.unknown", args, List.of(POS, OTHER, BlockPos.ZERO));
+		BlockPos fourth = new BlockPos(7, 8, 9);
+		TaskSummary summary = new TaskSummary("rabodepalha.task.unknown", args, List.of(POS, OTHER, BlockPos.ZERO, fourth));
 		assertEquals(args.subList(0, TaskSummary.MAX_ARGS), summary.args());
-		assertEquals(List.of(POS, OTHER), summary.targets());
+		assertEquals(3, TaskSummary.MAX_TARGETS);
+		assertEquals(List.of(POS, OTHER, BlockPos.ZERO), summary.targets());
 		assertEquals(summary, roundTrip(summary));
 	}
 

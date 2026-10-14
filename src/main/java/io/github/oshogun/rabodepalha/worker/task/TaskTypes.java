@@ -3,17 +3,20 @@ package io.github.oshogun.rabodepalha.worker.task;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Optional;
+import java.util.function.BiFunction;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -22,27 +25,37 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 /**
  * Task types known to the worker, keyed on {@link Task#typeId()}. Only task parameters are
  * serialized; runtime state is rebuilt when the task starts. The codec works with any ops (NBT, JSON),
  * but {@link #PLACE} looks blocks up in the static block registry, so the game must be bootstrapped.
- * Each type also has a {@link TaskSummary} for the RTS panel; {@link Task#describe()} stays the log text.
+ * Each type also has a {@link TaskSummary} for the RTS panel and the queued-order markers;
+ * {@link Task#describe()} stays the log text.
  */
 public final class TaskTypes {
-	private static final String KEY_PREFIX = "rabodepalha.task.";
+	public static final String KEY_PREFIX = "rabodepalha.task.";
 	private static final Map<String, Type<?>> TYPES = new LinkedHashMap<>();
+	/** Knows no blueprint, so a build summary targets only its origin. */
+	public static final BlueprintSizes NO_BLUEPRINTS = id -> Optional.empty();
+
+	/** Looks up a blueprint's size, to give a build summary its footprint. */
+	@FunctionalInterface
+	public interface BlueprintSizes {
+		Optional<Vec3i> size(Identifier blueprint);
+	}
 
 	public static final MapCodec<MoveToTask> MOVE_TO = register(MoveToTask.TYPE_ID, MoveToTask.class,
 			RecordCodecBuilder.mapCodec(instance -> instance.group(
 					BlockPos.CODEC.fieldOf("pos").forGetter(MoveToTask::pos),
 					Codec.INT.optionalFieldOf("timeout", Approach.DEFAULT_TIMEOUT).forGetter(MoveToTask::timeoutTicks)
 			).apply(instance, MoveToTask::new)),
-			task -> new TaskSummary(KEY_PREFIX + "move_to", List.of(pos(task.pos())), List.of(task.pos())));
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "move_to", List.of(pos(task.pos())), List.of(task.pos())));
 
 	public static final MapCodec<MineTask> MINE = register(MineTask.TYPE_ID, MineTask.class,
 			BlockPos.CODEC.fieldOf("pos").xmap(MineTask::new, MineTask::pos),
-			task -> summary("mine", List.of(pos(task.pos()))));
+			(task, sizes) -> summary("mine", List.of(pos(task.pos())), List.of(task.pos())));
 
 	/**
 	 * A full block state ({@code {Name, Properties}}). Saves from before states were stored hold a bare
@@ -57,16 +70,17 @@ public final class TaskTypes {
 					BlockPos.CODEC.fieldOf("pos").forGetter(PlaceTask::pos),
 					PLACE_STATE_CODEC.fieldOf("block").forGetter(PlaceTask::state)
 			).apply(instance, PlaceTask::new)),
-			task -> summary("place", List.of(task.state().getBlock().getName(), pos(task.pos()))));
+			(task, sizes) -> summary("place", List.of(task.state().getBlock().getName(), pos(task.pos())),
+					List.of(task.pos())));
 
 	public static final MapCodec<DepositTask> DEPOSIT = register(DepositTask.TYPE_ID, DepositTask.class,
 			RecordCodecBuilder.mapCodec(instance -> instance.group(
 					BlockPos.CODEC.fieldOf("pos").forGetter(DepositTask::pos),
 					Identifier.CODEC.optionalFieldOf("item").forGetter(DepositTask::itemId)
 			).apply(instance, DepositTask::new)),
-			task -> task.itemId()
-					.map(id -> summary("deposit_item", List.of(itemName(id), pos(task.pos()))))
-					.orElseGet(() -> summary("deposit", List.of(pos(task.pos())))));
+			(task, sizes) -> task.itemId()
+					.map(id -> summary("deposit_item", List.of(itemName(id), pos(task.pos())), List.of(task.pos())))
+					.orElseGet(() -> summary("deposit", List.of(pos(task.pos())), List.of(task.pos()))));
 
 	public static final MapCodec<WithdrawTask> WITHDRAW = register(WithdrawTask.TYPE_ID, WithdrawTask.class,
 			RecordCodecBuilder.mapCodec(instance -> instance.group(
@@ -74,8 +88,8 @@ public final class TaskTypes {
 					Identifier.CODEC.fieldOf("item").forGetter(WithdrawTask::itemId),
 					Codec.intRange(1, Integer.MAX_VALUE).optionalFieldOf("count", 1).forGetter(WithdrawTask::count)
 			).apply(instance, WithdrawTask::new)),
-			task -> summary("withdraw", List.of(Component.literal(String.valueOf(task.count())), itemName(task.itemId()),
-					pos(task.pos()))));
+			(task, sizes) -> summary("withdraw", List.of(Component.literal(String.valueOf(task.count())),
+					itemName(task.itemId()), pos(task.pos())), List.of(task.pos())));
 
 	/** Only the corners: progress is not saved, a loaded task scans the area again. */
 	public static final MapCodec<DigAreaTask> DIG_AREA = register(DigAreaTask.TYPE_ID, DigAreaTask.class,
@@ -85,18 +99,21 @@ public final class TaskTypes {
 			).apply(instance, DigAreaTask::new)).validate(task -> task.volume() <= DigAreaTask.MAX_VOLUME
 					? DataResult.success(task)
 					: DataResult.error(() -> "Dig area of " + task.volume() + " blocks exceeds " + DigAreaTask.MAX_VOLUME)),
-			task -> new TaskSummary(KEY_PREFIX + "dig_area", List.of(pos(task.from()), pos(task.to())),
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "dig_area", List.of(pos(task.from()), pos(task.to())),
 					List.of(task.from(), task.to())));
 
-	/** Only the parameters: progress is not saved, a loaded task plans the build again. */
+	/**
+	 * Only the parameters: progress is not saved, a loaded task plans the build again. The summary targets
+	 * the origin, then the footprint's min and max corners when the blueprint's size is known.
+	 */
 	public static final MapCodec<BuildTask> BUILD = register(BuildTask.TYPE_ID, BuildTask.class,
 			RecordCodecBuilder.mapCodec(instance -> instance.group(
 					BlockPos.CODEC.fieldOf("origin").forGetter(BuildTask::origin),
 					Identifier.CODEC.fieldOf("blueprint").forGetter(BuildTask::blueprint),
 					Rotation.CODEC.optionalFieldOf("rotation", Rotation.NONE).forGetter(BuildTask::rotation)
 			).apply(instance, BuildTask::new)),
-			task -> new TaskSummary(KEY_PREFIX + "build", List.of(Component.literal(task.blueprint().toString()),
-					pos(task.origin()), Component.literal(task.rotation().getSerializedName())), List.of(task.origin())));
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "build", List.of(Component.literal(task.blueprint().toString()),
+					pos(task.origin()), Component.literal(task.rotation().getSerializedName())), buildTargets(task, sizes)));
 
 	/** Dispatches on a {@code type} field; an unknown type decodes to a {@link DataResult} error. */
 	public static final Codec<Task<WorkerEntity>> CODEC = Codec.STRING.partialDispatch("type",
@@ -114,25 +131,44 @@ public final class TaskTypes {
 		return type != null ? DataResult.success(type.codec()) : DataResult.error(() -> "Unknown task type: " + typeId);
 	}
 
-	/** A translatable description of the task; an unregistered type gets {@code rabodepalha.task.unknown}. */
+	/** {@link #summarize(Task, BlueprintSizes)} without blueprint sizes, so a build targets only its origin. */
 	public static TaskSummary summarize(Task<WorkerEntity> task) {
+		return summarize(task, NO_BLUEPRINTS);
+	}
+
+	/**
+	 * A translatable description of the task and the positions it targets; an unregistered type gets
+	 * {@code rabodepalha.task.unknown}. {@code sizes} gives a build its footprint.
+	 */
+	public static TaskSummary summarize(Task<WorkerEntity> task, BlueprintSizes sizes) {
 		Type<?> type = TYPES.get(task.typeId());
 		if (type == null || !type.taskClass().isInstance(task)) {
-			return summary("unknown", List.of(Component.literal(task.typeId())));
+			return summary("unknown", List.of(Component.literal(task.typeId())), List.of());
 		}
-		return type.summarize(task);
+		return type.summarize(task, sizes);
+	}
+
+	/** The origin, then the footprint's min and max corners if the blueprint is known. The origin stays first. */
+	private static List<BlockPos> buildTargets(BuildTask task, BlueprintSizes sizes) {
+		Optional<Vec3i> size = sizes.size(task.blueprint());
+		if (size.isEmpty()) {
+			return List.of(task.origin());
+		}
+		BoundingBox box = BlueprintFootprint.box(task.origin(), size.get(), task.rotation());
+		return List.of(task.origin(), new BlockPos(box.minX(), box.minY(), box.minZ()),
+				new BlockPos(box.maxX(), box.maxY(), box.maxZ()));
 	}
 
 	private static <T extends Task<WorkerEntity>> MapCodec<T> register(String typeId, Class<T> taskClass, MapCodec<T> codec,
-			Function<T, TaskSummary> summary) {
+			BiFunction<T, BlueprintSizes, TaskSummary> summary) {
 		if (TYPES.putIfAbsent(typeId, new Type<>(taskClass, codec, summary)) != null) {
 			throw new IllegalStateException("Duplicate task type " + typeId);
 		}
 		return codec;
 	}
 
-	private static TaskSummary summary(String key, List<Component> args) {
-		return new TaskSummary(KEY_PREFIX + key, args, List.of());
+	private static TaskSummary summary(String key, List<Component> args, List<BlockPos> targets) {
+		return new TaskSummary(KEY_PREFIX + key, args, targets);
 	}
 
 	private static Component pos(BlockPos pos) {
@@ -145,9 +181,10 @@ public final class TaskTypes {
 		return item == Items.AIR ? Component.literal(id.toString()) : Component.translatable(item.getDescriptionId());
 	}
 
-	private record Type<T extends Task<WorkerEntity>>(Class<T> taskClass, MapCodec<T> codec, Function<T, TaskSummary> summary) {
-		TaskSummary summarize(Task<WorkerEntity> task) {
-			return summary.apply(taskClass.cast(task));
+	private record Type<T extends Task<WorkerEntity>>(Class<T> taskClass, MapCodec<T> codec,
+			BiFunction<T, BlueprintSizes, TaskSummary> summary) {
+		TaskSummary summarize(Task<WorkerEntity> task, BlueprintSizes sizes) {
+			return summary.apply(taskClass.cast(task), sizes);
 		}
 	}
 }

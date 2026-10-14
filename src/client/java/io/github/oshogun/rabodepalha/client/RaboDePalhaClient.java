@@ -9,6 +9,7 @@ import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsDigOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsHoverOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsHud;
+import io.github.oshogun.rabodepalha.client.rts.RtsQueuedOrdersOverlay;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 
 public class RaboDePalhaClient implements ClientModInitializer {
@@ -18,6 +19,7 @@ public class RaboDePalhaClient implements ClientModInitializer {
 		RtsClient.init();
 		RtsHud.init();
 		RtsHoverOverlay.init();
+		RtsQueuedOrdersOverlay.init();
 		RtsDigOverlay.init();
 		RtsBlueprintOverlay.init();
 		RaboDePalha.LOGGER.info("Rabo-de-palha client initialized");

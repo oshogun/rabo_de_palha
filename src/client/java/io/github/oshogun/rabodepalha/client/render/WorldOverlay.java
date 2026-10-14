@@ -1,5 +1,9 @@
 package io.github.oshogun.rabodepalha.client.render;
 
+import java.util.List;
+
+import org.joml.Vector3f;
+
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
@@ -18,8 +22,8 @@ import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * Draws simple world-space markers: block outlines, a highlighted block face and axis-aligned boxes.
- * Every call takes its own ARGB colour.
+ * Draws simple world-space markers: block outlines, a highlighted block face, axis-aligned boxes and
+ * line segments. Every call takes its own ARGB colour.
  *
  * <p>Call these methods only from a {@code LevelRenderEvents.COLLECT_SUBMITS} listener, passing that
  * listener's context. The geometry is queued on {@link LevelRenderContext#submitNodeCollector()} and drawn
@@ -42,6 +46,10 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public final class WorldOverlay {
 	/** How far a face highlight sits outside the block, in blocks, to avoid z-fighting. */
 	private static final double FACE_OFFSET = 0.002;
+
+	/** A line segment in world coordinates. */
+	public record Line(Vec3 from, Vec3 to, int argb) {
+	}
 
 	private WorldOverlay() {
 	}
@@ -99,6 +107,47 @@ public final class WorldOverlay {
 			submitQuads(ctx, poseStack, RenderTypes.debugFilledBox(), local, Direction.values(), fillArgb);
 		}
 		poseStack.popPose();
+	}
+
+	/** Draws a line segment in world coordinates. A zero-length or fully transparent line is skipped. */
+	public static void line(LevelRenderContext ctx, Vec3 from, Vec3 to, int argb) {
+		lines(ctx, List.of(new Line(from, to, argb)));
+	}
+
+	/**
+	 * Draws many line segments in one submission, so a long chain costs no more submissions than one line.
+	 * Zero-length and fully transparent lines are skipped.
+	 */
+	public static void lines(LevelRenderContext ctx, List<Line> lines) {
+		if (lines.stream().noneMatch(WorldOverlay::visible)) {
+			return;
+		}
+		// Vertices are relative to the camera, computed in doubles, so they stay precise far from the origin.
+		Vec3 camera = ctx.levelState().cameraRenderState.pos;
+		float width = ctx.gameRenderer().gameRenderState().windowRenderState.appropriateLineWidth;
+		PoseStack poseStack = ctx.poseStack();
+		poseStack.pushPose();
+		ctx.submitNodeCollector().submitCustomGeometry(poseStack, RenderTypes.linesTranslucent(), (pose, buffer) -> {
+			Vector3f normal = new Vector3f();
+			for (Line line : lines) {
+				if (!visible(line)) {
+					continue;
+				}
+				Vec3 a = line.from().subtract(camera);
+				Vec3 b = line.to().subtract(camera);
+				// The same vertex layout as vanilla's shape outlines on this render type.
+				normal.set((float) (b.x - a.x), (float) (b.y - a.y), (float) (b.z - a.z)).normalize();
+				buffer.addVertex(pose, (float) a.x, (float) a.y, (float) a.z).setColor(line.argb()).setNormal(pose, normal)
+						.setLineWidth(width);
+				buffer.addVertex(pose, (float) b.x, (float) b.y, (float) b.z).setColor(line.argb()).setNormal(pose, normal)
+						.setLineWidth(width);
+			}
+		});
+		poseStack.popPose();
+	}
+
+	private static boolean visible(Line line) {
+		return ARGB.alpha(line.argb()) != 0 && line.from().distanceToSqr(line.to()) > 1.0E-8;
 	}
 
 	private static void translate(LevelRenderContext ctx, PoseStack poseStack, double x, double y, double z) {

@@ -1,11 +1,15 @@
 package io.github.oshogun.rabodepalha.gametest;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.network.RtsBuildPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
+import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsMode;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
+import io.github.oshogun.rabodepalha.rts.RtsTaskKind;
+import io.github.oshogun.rabodepalha.rts.WorkerSnapshot;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.task.TaskOutcome.Cancelled.Cause;
@@ -13,15 +17,18 @@ import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.TaskSummary;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
@@ -36,6 +43,8 @@ import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 /**
  * Server side of RTS orders: {@link RtsOrders#handle(ServerPlayer, RtsOrderPayload, PermissionSet)} with
@@ -391,6 +400,62 @@ public class RtsOrderGameTest {
 					List<String> cancelled = cancelledLines(joined.drainSystemChat());
 					helper.assertTrue(cancelled.size() == 1 && cancelled.get(0).endsWith("-> cancelled (worker removed)"),
 							"expected one removal report, got " + cancelled);
+				})
+				.thenExecute(() -> RtsModeGameTest.leave(player))
+				.thenSucceed();
+	}
+
+	/** The worker's current task, then its queue, as the snapshot the RTS client draws markers from. */
+	private static List<TaskSummary> snapshotTasks(WorkerEntity worker) {
+		WorkerSnapshot snapshot = WorkerSnapshot.of(worker);
+		List<TaskSummary> tasks = new ArrayList<>();
+		snapshot.current().ifPresent(tasks::add);
+		snapshot.queued().forEach(queued -> tasks.add(queued.summary()));
+		return tasks;
+	}
+
+	@GameTest(maxTicks = 400)
+	public void queuedOrdersSnapshotCarriesTargets(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos mined = new BlockPos(4, 1, 4);
+		helper.setBlock(mined, Blocks.STONE);
+		Identifier blueprint = WorkerTaskGameTest.blueprint(helper, "rts_order_markers", Map.of(
+				new BlockPos(0, 0, 0), Blocks.COBBLESTONE.defaultBlockState(),
+				new BlockPos(1, 0, 2), Blocks.COBBLESTONE.defaultBlockState()));
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		worker.insertOrDrop(new ItemStack(Items.WOODEN_PICKAXE));
+		ServerPlayer player = rtsPlayer(helper);
+		BlockPos minePos = helper.absolutePos(mined);
+		BlockPos placePos = helper.absolutePos(CLICKED.above());
+		BlockPos origin = helper.absolutePos(new BlockPos(5, 1, 2));
+
+		// Shift-queued, the way the command bar sends them.
+		assertResult(helper, RtsOrders.handle(player, order(helper, RtsOrderKind.MINE, mined, true, worker), LEVEL_2),
+				true, 1, "queued");
+		RtsOrderPayload place = new RtsOrderPayload(List.of(worker.getId()), RtsOrderKind.PLACE, helper.absolutePos(CLICKED),
+				Direction.UP, Optional.of(BuiltInRegistries.ITEM.getKey(Items.STONE)), true);
+		assertResult(helper, RtsOrders.handle(player, place, LEVEL_2), true, 1, "queued");
+		RtsBuildPayload build = new RtsBuildPayload(List.of(worker.getId()), origin, blueprint, Rotation.CLOCKWISE_90, true);
+		assertResult(helper, RtsOrders.handleBuild(player, build, LEVEL_2, RtsOrders.MAX_TARGET_DISTANCE,
+				RtsOrders.MAX_WORKER_DISTANCE), true, 1, "build_queued");
+
+		List<TaskSummary> tasks = snapshotTasks(worker);
+		helper.assertTrue(tasks.stream().map(RtsTaskKind::of).toList()
+				.equals(List.of(RtsTaskKind.MINE, RtsTaskKind.PLACE, RtsTaskKind.BUILD)), "unexpected tasks " + tasks);
+		helper.assertTrue(tasks.get(0).targets().equals(List.of(minePos)), "mine targets " + tasks.get(0).targets());
+		helper.assertTrue(tasks.get(1).targets().equals(List.of(placePos)), "place targets " + tasks.get(1).targets());
+		BoundingBox footprint = BlueprintFootprint.box(origin, new Vec3i(2, 1, 3), Rotation.CLOCKWISE_90);
+		List<BlockPos> expected = List.of(origin, new BlockPos(footprint.minX(), footprint.minY(), footprint.minZ()),
+				new BlockPos(footprint.maxX(), footprint.maxY(), footprint.maxZ()));
+		helper.assertTrue(tasks.get(2).targets().equals(expected),
+				"build targets " + tasks.get(2).targets() + ", expected " + expected);
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertBlockPresent(Blocks.AIR, mined))
+				.thenWaitUntil(() -> {
+					List<TaskSummary> after = snapshotTasks(worker);
+					helper.assertTrue(after.stream().noneMatch(task -> RtsTaskKind.of(task) == RtsTaskKind.MINE),
+							"finished mine still in the snapshot: " + after);
 				})
 				.thenExecute(() -> RtsModeGameTest.leave(player))
 				.thenSucceed();

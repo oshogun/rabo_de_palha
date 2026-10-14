@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -14,6 +15,7 @@ import net.minecraft.world.item.Items;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
+import io.github.oshogun.rabodepalha.rts.RtsTaskKind;
 
 /**
  * The RTS command bar's commands, in bar order. This list is the one place to add a command: the key mappings,
@@ -71,8 +73,15 @@ public final class RtsCommands {
 	 * @param id the command's id, used in its lang keys
 	 * @param icon the item drawn on the button
 	 * @param defaultKey the default hotkey, an {@link InputConstants} key code
+	 * @param kind the kind of task the command queues, whose colour the bar shows under the button
 	 */
-	public record RtsCommand(String id, Supplier<ItemStack> icon, int defaultKey, Action action) {
+	public record RtsCommand(String id, Supplier<ItemStack> icon, int defaultKey, Action action,
+			Optional<RtsTaskKind> kind) {
+		/** A command that queues no task of its own kind. */
+		public RtsCommand(String id, Supplier<ItemStack> icon, int defaultKey, Action action) {
+			this(id, icon, defaultKey, action, Optional.empty());
+		}
+
 		/** The name of the command's key mapping. */
 		public String keyMappingName() {
 			return "key.rabodepalha.rts_command." + id;
@@ -92,24 +101,24 @@ public final class RtsCommands {
 			order("mine", () -> new ItemStack(Items.IRON_PICKAXE), InputConstants.KEY_B, RtsOrderKind.MINE),
 			order("place", () -> new ItemStack(Items.STONE), InputConstants.KEY_V, RtsOrderKind.PLACE),
 			new RtsCommand("dig", () -> new ItemStack(Items.IRON_SHOVEL), InputConstants.KEY_C,
-					new Area(RtsOrderHintClient::dig, RtsOrdersClient::sendDig)),
+					new Area(RtsOrderHintClient::dig, RtsOrdersClient::sendDig), Optional.of(RtsTaskKind.DIG)),
 			new RtsCommand("stop", () -> new ItemStack(Items.BARRIER), InputConstants.KEY_G,
 					new Instant(RtsOrdersClient::sendStop)),
 			new RtsCommand("spawn", () -> new ItemStack(Items.VILLAGER_SPAWN_EGG), InputConstants.KEY_N,
 					new Armed(RtsOrderHintClient::spawn, (hover, shift) -> RtsOrdersClient.sendSpawn(hover))),
 			new RtsCommand("deposit", () -> new ItemStack(Items.CHEST), InputConstants.KEY_J,
-					new Armed(RtsOrderHintClient::deposit, RtsOrdersClient::sendDeposit)),
+					new Armed(RtsOrderHintClient::deposit, RtsOrdersClient::sendDeposit), Optional.of(RtsTaskKind.DEPOSIT)),
 			// Withdraw stays armed while the contents view is open; confirming or closing the view disarms it.
 			new RtsCommand("withdraw", () -> new ItemStack(Items.HOPPER), InputConstants.KEY_K,
 					new Armed(RtsOrderHintClient::withdraw, (hover, shift) -> RtsOrdersClient.requestContents(hover),
-							true)),
+							true), Optional.of(RtsTaskKind.WITHDRAW)),
 			// Build opens the blueprint picker when armed and stays armed for more copies; the picked blueprint is
 			// dropped when the mode disarms.
 			new RtsCommand(BUILD, () -> new ItemStack(Items.BRICKS), InputConstants.KEY_Y,
 					new Armed(RtsOrderHintClient::build, RtsOrdersClient::sendBuild, true, () -> {
 						RtsBlueprintsClient.open();
 						RtsOrdersClient.requestBlueprints(RtsBlueprintsClient.includeVanilla());
-					})));
+					}), Optional.of(RtsTaskKind.BUILD)));
 
 	private RtsCommands() {
 	}
@@ -119,6 +128,6 @@ public final class RtsCommands {
 		return new RtsCommand(id, icon, defaultKey, new Armed(
 				hover -> RtsOrderHintClient.current(hover, kind),
 				(hover, shift) -> RtsOrdersClient.sendOrder(kind, hover, RtsOrderHintClient.current(hover, kind),
-						shift)));
+						shift)), Optional.of(RtsTaskKind.from(kind)));
 	}
 }

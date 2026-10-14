@@ -38,6 +38,7 @@ import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
+import io.github.oshogun.rabodepalha.rts.RtsOrderColors;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsPanel;
 import io.github.oshogun.rabodepalha.rts.RtsPickMath;
@@ -59,6 +60,8 @@ public final class RtsHud {
 	private static final int BUTTON_COLOR = 0xB0000000;
 	private static final int BUTTON_HOVER_COLOR = 0xB0505050;
 	private static final int BUTTON_ARMED_COLOR = 0xFFFFD84A;
+	/** Height of the strip in a command's kind colour along a button's bottom. */
+	private static final int KIND_STRIP = 2;
 	private static final int PANEL_COLOR = 0x90000000;
 	private static final int PANEL_BUTTON_COLOR = 0xB0303030;
 	private static final int SLOT_BORDER_COLOR = 0x60FFFFFF;
@@ -612,6 +615,9 @@ public final class RtsHud {
 			RtsCommands.RtsCommand command = commands.get(i);
 			graphics.fill(button.x(), button.y(), button.x() + button.w(), button.y() + button.h(),
 					i == hovered ? BUTTON_HOVER_COLOR : BUTTON_COLOR);
+			// The kind's colour, the same as its queued-order markers in the world.
+			command.kind().ifPresent(kind -> graphics.fill(button.x() + 1, button.y() + button.h() - 1 - KIND_STRIP,
+					button.x() + button.w() - 1, button.y() + button.h() - 1, RtsOrderColors.line(kind)));
 			if (command == armed) {
 				graphics.outline(button.x(), button.y(), button.w(), button.h(), BUTTON_ARMED_COLOR);
 			}

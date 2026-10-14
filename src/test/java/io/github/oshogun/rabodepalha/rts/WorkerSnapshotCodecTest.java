@@ -80,6 +80,19 @@ class WorkerSnapshotCodecTest {
 	}
 
 	@Test
+	void roundTripsBuildWithFootprintTargets() {
+		TaskSummary build = new TaskSummary("rabodepalha.task.build", List.of(Component.literal("rabodepalha:hut"),
+				Component.literal(POS.toShortString()), Component.literal("none")),
+				List.of(POS, POS.offset(-3, 0, 0), POS.offset(0, 2, 1)));
+		WorkerSnapshot snapshot = new WorkerSnapshot(4, name(), Optional.of(build),
+				List.of(new WorkerSnapshot.QueuedTask(1L, build)), 1, List.of(), WorkerSnapshot.ChunkStatus.LOADED);
+		WorkerSnapshot decoded = roundTrip(WorkerSnapshot.STREAM_CODEC, snapshot);
+		assertSame(snapshot, decoded);
+		assertEquals(build.targets(), decoded.current().orElseThrow().targets());
+		assertEquals(build.targets(), decoded.queued().get(0).summary().targets());
+	}
+
+	@Test
 	void queuedIsTruncatedButTotalKept() {
 		WorkerSnapshot snapshot = snapshot(WorkerSnapshot.MAX_QUEUED + 5, WorkerSnapshot.ChunkStatus.LOADED);
 		assertEquals(WorkerSnapshot.MAX_QUEUED, snapshot.queued().size());
@@ -170,7 +183,7 @@ class WorkerSnapshotCodecTest {
 
 	private static WorkerSnapshot snapshot(int queuedCount, WorkerSnapshot.ChunkStatus chunks) {
 		TaskSummary current = new TaskSummary("rabodepalha.task.place",
-				List.of(Blocks.OAK_PLANKS.getName(), Component.literal(POS.toShortString())), List.of());
+				List.of(Blocks.OAK_PLANKS.getName(), Component.literal(POS.toShortString())), List.of(POS));
 		List<WorkerSnapshot.QueuedTask> queued = new ArrayList<>();
 		for (int i = 0; i < queuedCount; i++) {
 			queued.add(new WorkerSnapshot.QueuedTask(i + 1L,

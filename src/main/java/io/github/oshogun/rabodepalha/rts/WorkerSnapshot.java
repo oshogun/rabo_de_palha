@@ -16,9 +16,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.ByIdMap;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 
 /**
  * What the RTS panel shows about one watched worker: its name, current and queued tasks, inventory and
@@ -72,7 +74,11 @@ public record WorkerSnapshot(int entityId, Component name, Optional<TaskSummary>
 		}
 	}
 
+	/** The worker's snapshot; on the server, build summaries carry their footprint from the loaded templates. */
 	public static WorkerSnapshot of(WorkerEntity worker) {
+		TaskTypes.BlueprintSizes sizes = worker.level() instanceof ServerLevel level
+				? id -> level.getStructureTemplateManager().get(id).map(StructureTemplate::getSize)
+				: TaskTypes.NO_BLUEPRINTS;
 		TaskRunner<WorkerEntity> tasks = worker.tasks();
 		List<TaskRunner.Pending<WorkerEntity>> pending = tasks.pendingEntries();
 		List<QueuedTask> queued = new ArrayList<>(Math.min(pending.size(), MAX_QUEUED));
@@ -80,14 +86,14 @@ public record WorkerSnapshot(int entityId, Component name, Optional<TaskSummary>
 			if (queued.size() >= MAX_QUEUED) {
 				break;
 			}
-			queued.add(new QueuedTask(entry.id(), TaskTypes.summarize(entry.task())));
+			queued.add(new QueuedTask(entry.id(), TaskTypes.summarize(entry.task(), sizes)));
 		}
 		SimpleContainer container = worker.getInventory();
 		List<ItemStack> inventory = new ArrayList<>(container.getContainerSize());
 		for (int i = 0; i < container.getContainerSize(); i++) {
 			inventory.add(container.getItem(i));
 		}
-		return new WorkerSnapshot(worker.getId(), worker.label(), tasks.current().map(TaskTypes::summarize),
+		return new WorkerSnapshot(worker.getId(), worker.label(), tasks.current().map(task -> TaskTypes.summarize(task, sizes)),
 				queued, pending.size(), inventory, ChunkStatus.of(worker));
 	}
 

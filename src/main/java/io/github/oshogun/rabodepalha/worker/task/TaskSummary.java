@@ -11,11 +11,12 @@ import net.minecraft.network.codec.StreamCodec;
 
 /**
  * A short translatable description of a task, plus the positions it targets. Arguments are
- * Components so block and item names are translated on the client.
+ * Components so block and item names are translated on the client. A build targets its origin, then
+ * its footprint's min and max corners when the blueprint is known; the origin is always first.
  */
 public record TaskSummary(String key, List<Component> args, List<BlockPos> targets) {
 	public static final int MAX_ARGS = 4;
-	public static final int MAX_TARGETS = 2;
+	public static final int MAX_TARGETS = 3;
 	public static final int MAX_KEY = 64;
 
 	public static final StreamCodec<RegistryFriendlyByteBuf, TaskSummary> STREAM_CODEC = StreamCodec.composite(
