@@ -8,12 +8,14 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.client.render.WorldOverlay;
 import io.github.oshogun.rabodepalha.rts.QueuedOrderMarkers;
 import io.github.oshogun.rabodepalha.rts.RtsOrderColors;
+import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
 import io.github.oshogun.rabodepalha.rts.WorkerSnapshot;
 
 /**
@@ -42,11 +44,16 @@ public final class RtsQueuedOrdersOverlay {
 			return;
 		}
 		float partialTick = client.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+		int pickLevel = RtsClient.pickLevel();
 		List<QueuedOrderMarkers.Worker> workers = new ArrayList<>();
 		for (int id : RtsSelectionClient.selectedIds()) {
 			WorkerSnapshot snapshot = RtsSnapshotsClient.get(id);
 			Entity entity = level.getEntity(id);
 			if (snapshot == null || entity == null) {
+				continue;
+			}
+			// A worker the cutaway hides above the view level shows no markers, as it can't be picked either.
+			if (RtsViewLevel.feetAboveLevel(Mth.floor(entity.getY()), pickLevel)) {
 				continue;
 			}
 			// Lines start at the worker's middle, where it is drawn this frame.

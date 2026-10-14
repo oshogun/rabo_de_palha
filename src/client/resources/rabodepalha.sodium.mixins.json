@@ -1,0 +1,16 @@
+{
+	"required": true,
+	"package": "io.github.oshogun.rabodepalha.client.cutaway.sodium.mixin",
+	"plugin": "io.github.oshogun.rabodepalha.client.cutaway.sodium.SodiumMixinPlugin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"LevelSliceMixin",
+		"VisibleChunkCollectorMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

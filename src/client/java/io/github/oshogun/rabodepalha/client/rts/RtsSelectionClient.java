@@ -306,7 +306,11 @@ public final class RtsSelectionClient {
 		return hits;
 	}
 
-	/** Whether the worker's feet are above {@code pickLevel}, so level mode cannot pick it. */
+	/**
+	 * Whether the worker's feet are above {@code pickLevel}, so level mode cannot pick it. This is the rule the
+	 * cutaway hides entities by ({@link io.github.oshogun.rabodepalha.rts.CutawayRegion#hidesFeet}), so a hidden
+	 * worker can't be picked.
+	 */
 	private static boolean aboveLevel(WorkerEntity worker, int pickLevel) {
 		return RtsViewLevel.feetAboveLevel(Mth.floor(worker.getY()), pickLevel);
 	}

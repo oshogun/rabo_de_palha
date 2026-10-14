@@ -9,6 +9,12 @@ repositories {
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
 	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
 	// for more information about repositories.
+	maven {
+		url = 'https://api.modrinth.com/maven'
+		content {
+			includeGroup 'maven.modrinth'
+		}
+	}
 }
 
 loom {
@@ -29,6 +35,13 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Sodium is optional: compile the cutaway integration against it, but never require it at runtime.
+	// Pass -PwithSodium to add it to the local dev runs for manual testing.
+	clientCompileOnly "maven.modrinth:sodium:${project.sodium_version}"
+	if (project.hasProperty('withSodium')) {
+		localRuntime "maven.modrinth:sodium:${project.sodium_version}"
+	}
 
 	// JUnit 5 unit tests, run on Fabric Loader's classpath so Minecraft classes are usable.
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"

@@ -465,6 +465,30 @@ worker):
 9. Turn occlusion culling off through `Camera.extractRenderState` while the cut is active.
 10. Wire it to `RtsViewLevel`'s `LEVEL` mode, with the predicate `y > viewLevel`.
 
+**#27 as built.**
+
+- **Cap shading.** `CutawayShading.capLight` goes further than the plain light floor in item 8. A
+  light sample inside the region is a *cut wall* when the hidden cell is solid. It then gets a fixed
+  light (`CAP_BLOCK = 7`, `CAP_SKY = 0`). When the hidden cell is air, the sample is a *real floor*
+  and gets `max(real, FLOOR_BLOCK = 12)` with the real sky light. So a sliced wall looks darker and
+  flatter than a floor a worker can walk on. The constants are package-visible so they can be tuned.
+- **Region sync.** `RtsClient.syncCutaway()` publishes the region at most once per client tick, at
+  the end of `END_CLIENT_TICK`, and again from `setActive`. It sets `CutawayRegion.above(viewLevel)`
+  in `LEVEL` mode and `CutawayRegion.NONE` otherwise. `Cutaway.set` returns early when the region
+  hasn't changed. Otherwise it dirties only the layers from `CutawayRegion.changedSectionYs`, through
+  `LevelExtractor.setSectionDirty`, and invalidates the graph only when `insideSetChanged`.
+- **Sodium version pin.** `fabric.mod.json` has `"suggests": {"sodium": "*"}` and no `depends`
+  entry for Sodium. It also has `"breaks": {"sodium": ["<0.9.2", ">=0.9.3-"]}`. Sodium 0.9.2's
+  version string is `0.9.2+mc26.3`, which is allowed. The `-` makes the lower bound include the
+  0.9.3 pre-releases, such as `0.9.3-alpha.1+mc26.3`, so they are broken along with everything
+  after them. That way an untested Sodium gets Fabric's clear incompatibility message, not a mixin
+  crash at startup under `defaultRequire 1`. Widen the pin only after a new Sodium release has been
+  tested against `LevelSlice` and `VisibleChunkCollector`. Update `SodiumCompatPinTest` in the same
+  change.
+- **Costs** are a manual check, not recorded numbers. Watch F3's chunk-update counters and FPS
+  while stepping levels and while a cut is active, on vanilla and with `-PwithSodium`. No
+  `-Drabodepalha.cutaway` prototype flag ships.
+
 **#29: see into buildings.**
 
 - Reuse the same predicate, with new shapes:

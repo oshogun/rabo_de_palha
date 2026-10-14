@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.client.cutaway.Cutaway;
 import io.github.oshogun.rabodepalha.client.rts.RtsBlueprintOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsDigOverlay;
@@ -17,6 +18,7 @@ public class RaboDePalhaClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		EntityRenderers.register(ModEntities.WORKER, WorkerRenderer::new);
 		RtsClient.init();
+		Cutaway.init();
 		RtsHud.init();
 		RtsHoverOverlay.init();
 		RtsQueuedOrdersOverlay.init();

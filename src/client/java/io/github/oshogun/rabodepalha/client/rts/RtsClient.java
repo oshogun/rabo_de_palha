@@ -22,6 +22,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.client.cutaway.Cutaway;
 import io.github.oshogun.rabodepalha.network.RtsBlueprintInfoPayload;
 import io.github.oshogun.rabodepalha.network.RtsBlueprintsPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsPayload;
@@ -29,6 +30,7 @@ import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsSnapshotPayload;
 import io.github.oshogun.rabodepalha.network.RtsStatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTogglePayload;
+import io.github.oshogun.rabodepalha.rts.CutawayRegion;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -139,7 +141,10 @@ public final class RtsClient {
 				(payload, context) -> RtsBlueprintsClient.accept(payload));
 		ClientPlayNetworking.registerGlobalReceiver(RtsBlueprintInfoPayload.TYPE,
 				(payload, context) -> RtsBlueprintsClient.acceptInfo(payload));
-		ClientTickEvents.END_CLIENT_TICK.register(RtsClient::tick);
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			tick(client);
+			syncCutaway();
+		});
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> reset());
 	}
 
@@ -222,6 +227,12 @@ public final class RtsClient {
 		} else if (client.gui.screen() == null) {
 			client.mouseHandler.grabMouse();
 		}
+		syncCutaway();
+	}
+
+	/** Hides everything above the view level in level mode, and nothing otherwise. */
+	private static void syncCutaway() {
+		Cutaway.set(active && viewMode == RtsViewLevel.Mode.LEVEL ? CutawayRegion.above(viewLevel) : CutawayRegion.NONE);
 	}
 
 	private static void reset() {
@@ -236,6 +247,8 @@ public final class RtsClient {
 		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
 		resetViewLevel();
+		// Re-meshes the cut sections while the level is still there; without a level it only drops the region.
+		Cutaway.set(CutawayRegion.NONE);
 	}
 
 	private static void resetViewLevel() {
