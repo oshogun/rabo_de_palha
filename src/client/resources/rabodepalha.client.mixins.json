@@ -8,6 +8,7 @@
 		"KeyboardInputMixin",
 		"LevelExtractorCutawayMixin",
 		"LightCoordsUtilMixin",
+		"LightmapRenderStateExtractorMixin",
 		"MinecraftMixin",
 		"MouseHandlerMixin",
 		"RenderSectionRegionMixin",

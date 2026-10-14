@@ -31,6 +31,7 @@ import io.github.oshogun.rabodepalha.network.RtsSnapshotPayload;
 import io.github.oshogun.rabodepalha.network.RtsStatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTogglePayload;
 import io.github.oshogun.rabodepalha.rts.CutawayRegion;
+import io.github.oshogun.rabodepalha.rts.RtsBrightness;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -62,6 +63,8 @@ public final class RtsClient {
 	public static KeyMapping levelModeKey;
 	/** Moves the view level to the feet of the first selected worker. */
 	public static KeyMapping levelToWorkerKey;
+	/** Cycles the brightness boost through its presets. */
+	public static KeyMapping brightnessKey;
 
 	/** Time step assumed for the first tick, when there is no previous tick to measure from. */
 	private static final double DEFAULT_TICK_DT = 0.05;
@@ -92,6 +95,8 @@ public final class RtsClient {
 	/** Ticks each level step key has been held, or -1 when it is up. */
 	private static int levelUpHeld = -1;
 	private static int levelDownHeld = -1;
+	/** The brightness preset picked with the key this session, or null to follow the view mode's default. */
+	private static RtsBrightness.Preset brightnessChoice;
 
 	private RtsClient() {
 	}
@@ -123,6 +128,8 @@ public final class RtsClient {
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_END, CATEGORY));
 		levelToWorkerKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_level_to_worker",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_HOME, CATEGORY));
+		brightnessKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_brightness",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_O, CATEGORY));
 
 		ClientPlayNetworking.registerGlobalReceiver(RtsStatePayload.TYPE,
 				(payload, context) -> setActive(context.client(), payload.active()));
@@ -163,6 +170,16 @@ public final class RtsClient {
 	/** The highest block Y picks may hit: the view level in level mode, otherwise no limit. */
 	public static int pickLevel() {
 		return viewMode == RtsViewLevel.Mode.LEVEL ? viewLevel : Integer.MAX_VALUE;
+	}
+
+	/** The brightness preset in effect; OFF outside RTS mode, so leaving it restores vanilla lighting. */
+	public static RtsBrightness.Preset brightness() {
+		return RtsBrightness.effective(brightnessChoice, active, viewMode == RtsViewLevel.Mode.LEVEL);
+	}
+
+	/** The night-vision intensity the lightmap is raised to, or 0 for none. */
+	public static float brightnessBoost() {
+		return brightness().intensity;
 	}
 
 	/** Blocks the view level lies below the surface at the screen centre, or NaN. */
@@ -247,6 +264,7 @@ public final class RtsClient {
 		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
 		resetViewLevel();
+		brightnessChoice = null;
 		// Re-meshes the cut sections while the level is still there; without a level it only drops the region.
 		Cutaway.set(CutawayRegion.NONE);
 	}
@@ -333,6 +351,11 @@ public final class RtsClient {
 			levelDownHeld = -1;
 		} else {
 			tickViewLevel(client, player);
+			while (brightnessKey.consumeClick()) {
+				brightnessChoice = RtsBrightness.press(brightnessChoice, viewMode == RtsViewLevel.Mode.LEVEL);
+				RtsHud.showFeedback(true, Component.translatable("rabodepalha.rts.brightness",
+						RtsHud.brightnessName(brightnessChoice)));
+			}
 			for (int i = 0; i < commandKeys.size(); i++) {
 				KeyMapping key = commandKeys.get(i);
 				while (key.consumeClick()) {
@@ -409,14 +432,14 @@ public final class RtsClient {
 		centreDepth = sampleCentreDepth(client.level, x, z);
 	}
 
-	/** Drops command hotkey and view level presses made outside RTS mode or behind a screen. */
+	/** Drops command hotkey, view level and brightness presses made outside RTS mode or behind a screen. */
 	private static void dropCommandPresses() {
 		for (KeyMapping key : commandKeys) {
 			while (key.consumeClick()) {
 				// Discard.
 			}
 		}
-		for (KeyMapping key : List.of(levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey)) {
+		for (KeyMapping key : List.of(levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey, brightnessKey)) {
 			while (key.consumeClick()) {
 				// Discard.
 			}

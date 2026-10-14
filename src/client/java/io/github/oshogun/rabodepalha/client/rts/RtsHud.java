@@ -2,6 +2,7 @@ package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import com.mojang.blaze3d.platform.Window;
@@ -33,6 +34,7 @@ import io.github.oshogun.rabodepalha.rts.BlueprintCatalog;
 import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsAreaDrag;
 import io.github.oshogun.rabodepalha.rts.RtsBlueprintPicker;
+import io.github.oshogun.rabodepalha.rts.RtsBrightness;
 import io.github.oshogun.rabodepalha.rts.RtsBuildMaterials;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
@@ -200,19 +202,31 @@ public final class RtsHud {
 
 	/**
 	 * The camera mode line: "Surface view", or the view level and, when the screen centre's column is known and
-	 * the level lies under its surface, how far below it.
+	 * the level lies under its surface, how far below it; then the brightness boost when it is on.
 	 */
 	private static Component viewLevelLine() {
+		Component line;
 		if (RtsClient.viewMode() != RtsViewLevel.Mode.LEVEL) {
-			return Component.translatable("rabodepalha.rts.level.surface");
+			line = Component.translatable("rabodepalha.rts.level.surface");
+		} else {
+			line = Component.translatable("rabodepalha.rts.level.level", RtsClient.viewLevel());
+			double depth = RtsClient.centreDepth();
+			if (Double.isFinite(depth) && depth > 0) {
+				line = Component.empty().append(line).append(" - ")
+						.append(Component.translatable("rabodepalha.rts.level.depth", (int) depth));
+			}
 		}
-		Component line = Component.translatable("rabodepalha.rts.level.level", RtsClient.viewLevel());
-		double depth = RtsClient.centreDepth();
-		if (Double.isFinite(depth) && depth > 0) {
+		RtsBrightness.Preset brightness = RtsClient.brightness();
+		if (brightness != RtsBrightness.Preset.OFF) {
 			line = Component.empty().append(line).append(" - ")
-					.append(Component.translatable("rabodepalha.rts.level.depth", (int) depth));
+					.append(Component.translatable("rabodepalha.rts.brightness", brightnessName(brightness)));
 		}
 		return line;
+	}
+
+	/** The display name of a brightness preset. */
+	static Component brightnessName(RtsBrightness.Preset preset) {
+		return Component.translatable("rabodepalha.rts.brightness." + preset.name().toLowerCase(Locale.ROOT));
 	}
 
 	/** What the mouse cursor is on in the blueprint picker. */
