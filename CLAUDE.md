@@ -54,5 +54,10 @@ headlessly from the terminal.
   - Download the Fabric API module sources jars (fabric-api 0.162.0+26.3) from
     `maven.fabricmc.net` and unzip each into `build/mc-sources/fabric-api/<module>`,
     e.g. `fabric-command-api-v2`.
+  - Download the Sodium sources from
+    `https://codeload.github.com/CaffeineMC/sodium/zip/refs/tags/mc26.3-0.9.2` and unzip
+    them into `build/sodium-sources/`, giving `build/sodium-sources/sodium-mc26.3-0.9.2/`.
+    The tree is read-only: never build or run it. Agents must grep it for Sodium code and
+    must not rely on memory of older Sodium versions.
 - Agents must grep `build/mc-sources` for vanilla and Fabric API code (Mojang names)
   and must not rely on memory of older Minecraft/Fabric versions.
