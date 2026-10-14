@@ -311,8 +311,8 @@ public final class RtsClient {
 			right -= 1.0;
 		}
 		RtsCameraMath.PanInput keys = new RtsCameraMath.PanInput(forward, right);
-		if (!client.isWindowActive() || RtsSelectionClient.isDragging()) {
-			// No edge scroll while dragging a selection box, which often ends at the screen edge.
+		if (!client.isWindowActive() || RtsSelectionClient.isDragging() || RtsCommandClient.isAreaDragging()) {
+			// No edge scroll while dragging a selection box or dig area, which often ends at the screen edge.
 			return keys;
 		}
 		Window window = client.getWindow();

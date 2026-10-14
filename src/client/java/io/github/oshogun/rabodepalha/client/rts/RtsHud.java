@@ -6,6 +6,7 @@ import com.mojang.blaze3d.platform.Window;
 
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -14,10 +15,14 @@ import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPosition
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
+import io.github.oshogun.rabodepalha.rts.RtsAreaDrag;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
+import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
+import io.github.oshogun.rabodepalha.rts.RtsPickMath;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
 
 /**
@@ -95,7 +100,10 @@ public final class RtsHud {
 		}
 		int hovered = RtsCommandClient.hoveredButton();
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
-		if (hover != null && hovered < 0) {
+		RtsDigArea digArea = RtsCommandClient.digArea();
+		if (digArea != null) {
+			extractDigArea(graphics, client, digArea, y);
+		} else if (hover != null && hovered < 0) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
 			// already states the reason.
 			RtsOrderHint.Hint hint = RtsCommandClient.currentHint(hover);
@@ -121,6 +129,44 @@ public final class RtsHud {
 		}
 
 		extractCommandBar(graphics, client, hovered);
+	}
+
+	/**
+	 * While a dig area is being marked: the hint for the current phase on the hint line, and the area's size
+	 * and volume above the top centre of its box, or on the hint line when that point is off-camera. An
+	 * invalid area adds the reason, in the error colour.
+	 */
+	private static void extractDigArea(GuiGraphicsExtractor graphics, Minecraft client, RtsDigArea area, int y) {
+		String hintKey = RtsCommandClient.digPhase() == RtsAreaDrag.Phase.DEPTH ? "rabodepalha.rts.dig.hint.depth"
+				: "rabodepalha.rts.dig.hint.drag";
+		Component hint = Component.translatable(hintKey);
+		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+		if (armed != null) {
+			hint = Component.empty().append(armed.displayName()).append(": ").append(hint);
+		}
+		Component problem = RtsOrdersClient.digProblem(area);
+		Component label = Component.literal(area.label());
+		if (problem != null) {
+			label = Component.empty().append(label).append(" - ").append(problem);
+		}
+		int labelColor = problem == null ? OK_COLOR : ERROR_COLOR;
+
+		Camera camera = client.gameRenderer.mainCamera();
+		Window window = client.getWindow();
+		Vec3 eye = camera.position();
+		RtsPickMath.Projected p = RtsPickMath.project(area.centerX() - eye.x, area.maxY() + 1 - eye.y,
+				area.centerZ() - eye.z, window.getScreenWidth(), window.getScreenHeight(), camera.getFov(),
+				camera.yRot(), camera.xRot());
+		graphics.text(client.font, hint, MARGIN, y, TEXT_COLOR);
+		if (p == null) {
+			graphics.text(client.font, label, MARGIN, y + client.font.lineHeight + 2, labelColor);
+			return;
+		}
+		// The projection is in window pixels; the HUD draws in GUI-scaled coordinates. Centred just above the point.
+		double scale = window.getGuiScale();
+		int x = (int) Math.round(p.x() / scale) - client.font.width(label) / 2;
+		int labelY = (int) Math.round(p.y() / scale) - client.font.lineHeight - 2;
+		graphics.text(client.font, label, x, labelY, labelColor);
 	}
 
 	/** Draws the command bar at the bottom centre, and the hovered button's tooltip on top of it. */

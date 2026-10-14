@@ -4,7 +4,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
+import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
@@ -13,6 +15,7 @@ import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
+import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -86,6 +89,26 @@ public final class RtsOrders {
 		return sendFeedback(player, applyStop(player, payload, permissions));
 	}
 
+	/** Entry point for the client's dig order. */
+	public static Result handleDig(ServerPlayer player, RtsDigPayload payload) {
+		return handleDig(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link DigAreaTask} over the payload's cuboid, like {@code /rdp dig <from> <to>
+	 * [workers]}, then sends the feedback. The whole order is rejected when the area is outside the world, over
+	 * {@link DigAreaTask#MAX_VOLUME} blocks, too far from the player's eyes or not loaded.
+	 */
+	public static Result handleDig(ServerPlayer player, RtsDigPayload payload, PermissionSet permissions) {
+		return handleDig(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleDig(ServerPlayer, RtsDigPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleDig(ServerPlayer player, RtsDigPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyDig(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
 	/** Entry point for the client's spawn order. */
 	public static Result handleSpawn(ServerPlayer player, RtsSpawnPayload payload) {
 		return handleSpawn(player, payload, player.permissions());
@@ -150,22 +173,64 @@ public final class RtsOrders {
 			placeState = blockItem.getBlock().defaultBlockState();
 		}
 
-		// Duplicated ids would otherwise queue the task twice on the same worker.
-		List<WorkerEntity> valid = new ArrayList<>();
-		int unknown = 0;
-		int tooFar = 0;
-		Vec3 targetCenter = Vec3.atBottomCenterOf(target);
-		for (int id : new LinkedHashSet<>(ids)) {
-			if (!(level.getEntity(id) instanceof WorkerEntity worker) || !worker.isAlive()) {
-				unknown++;
-			} else if (worker.position().distanceToSqr(targetCenter) > maxWorkerDistance * maxWorkerDistance) {
-				tooFar++;
-			} else {
-				valid.add(worker);
-			}
+		Workers workers = resolveWorkers(level, ids, Vec3.atBottomCenterOf(target), maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		BlockState state = placeState;
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.queued" : "rabodepalha.rts.order.replaced",
+				kind.name().toLowerCase(Locale.ROOT), target.getX(), target.getY(), target.getZ(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> newTask(kind, target, state), applied);
+	}
+
+	private static Result applyDig(ServerPlayer player, RtsDigPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
 		}
 
-		if (valid.isEmpty()) {
+		ServerLevel level = player.level();
+		BlockPos from = payload.from();
+		BlockPos to = payload.to();
+		RtsDigArea area = RtsDigArea.between(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (level.isOutsideBuildHeight(area.minY()) || level.isOutsideBuildHeight(area.maxY())) {
+			return reject("rabodepalha.rts.order.area_out_of_world");
+		}
+		// Before any per-chunk work, so a crafted payload cannot make the server scan a huge footprint.
+		if (area.exceeds(DigAreaTask.MAX_VOLUME)) {
+			return reject("rabodepalha.rts.order.area_too_large");
+		}
+		Vec3 eye = player.getEyePosition();
+		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z) > maxTargetDistance * maxTargetDistance) {
+			return reject("rabodepalha.rts.order.target_too_far");
+		}
+		if (!level.hasChunksAt(area.minX(), area.minZ(), area.maxX(), area.maxZ())) {
+			return reject("rabodepalha.rts.order.not_loaded");
+		}
+
+		Workers workers = resolveWorkers(level, ids, new Vec3(area.centerX(), area.centerY(), area.centerZ()),
+				maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		BlockPos min = new BlockPos(area.minX(), area.minY(), area.minZ());
+		BlockPos max = new BlockPos(area.maxX(), area.maxY(), area.maxZ());
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.dig_queued" : "rabodepalha.rts.order.dig_replaced",
+				area.sizeX(), area.sizeZ(), area.sizeY(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new DigAreaTask(min, max), applied);
+	}
+
+	/** The workers an order resolved to, and how many ids were rejected and why. */
+	private record Workers(List<WorkerEntity> valid, int unknown, int tooFar) {
+		/** The feedback when no worker is valid. */
+		Result noneValid() {
 			MutableComponent message = Component.empty();
 			if (unknown > 0) {
 				message.append(Component.translatable("rabodepalha.rts.order.unknown_worker", unknown));
@@ -175,24 +240,47 @@ public final class RtsOrders {
 			}
 			return new Result(false, 0, message);
 		}
+	}
 
+	/** Resolves {@code ids} to live workers within {@code maxWorkerDistance} of {@code center}. */
+	private static Workers resolveWorkers(ServerLevel level, List<Integer> ids, Vec3 center, double maxWorkerDistance) {
+		// Duplicated ids would otherwise queue the task twice on the same worker.
+		List<WorkerEntity> valid = new ArrayList<>();
+		int unknown = 0;
+		int tooFar = 0;
+		for (int id : new LinkedHashSet<>(ids)) {
+			if (!(level.getEntity(id) instanceof WorkerEntity worker) || !worker.isAlive()) {
+				unknown++;
+			} else if (worker.position().distanceToSqr(center) > maxWorkerDistance * maxWorkerDistance) {
+				tooFar++;
+			} else {
+				valid.add(worker);
+			}
+		}
+		return new Workers(valid, unknown, tooFar);
+	}
+
+	/**
+	 * Gives each valid worker a fresh task from {@code task}, after the current ones with {@code append} or
+	 * replacing them otherwise, and reports {@code applied}, wrapped as partial if some ids were rejected.
+	 */
+	private static Result assign(ServerPlayer player, Workers workers, boolean append,
+			Supplier<Task<WorkerEntity>> task, Component applied) {
+		List<WorkerEntity> valid = workers.valid();
 		for (WorkerEntity worker : valid) {
 			worker.addCommander(player.getUUID());
-			if (!payload.append()) {
+			if (!append) {
 				worker.tasks().clear(worker, TaskOutcome.Cancelled.Cause.SUPERSEDED);
 			}
-			worker.tasks().enqueue(newTask(kind, target, placeState));
+			worker.tasks().enqueue(task.get());
 		}
 
-		Component applied = Component.translatable(
-				payload.append() ? "rabodepalha.rts.order.queued" : "rabodepalha.rts.order.replaced",
-				kind.name().toLowerCase(Locale.ROOT), target.getX(), target.getY(), target.getZ(), valid.size());
-		int rejected = unknown + tooFar;
+		int rejected = workers.unknown() + workers.tooFar();
 		if (rejected == 0) {
 			return new Result(true, valid.size(), applied);
 		}
-		return new Result(false, valid.size(),
-				Component.translatable("rabodepalha.rts.order.partial", applied, rejected, unknown, tooFar));
+		return new Result(false, valid.size(), Component.translatable("rabodepalha.rts.order.partial",
+				applied, rejected, workers.unknown(), workers.tooFar()));
 	}
 
 	private static Result applyStop(ServerPlayer player, RtsStopPayload payload, PermissionSet permissions) {

@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
+import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 
@@ -22,7 +23,7 @@ import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
  */
 public final class RtsCommands {
 	/** What a command does when its button or hotkey is used. */
-	public sealed interface Action permits Instant, Armed {
+	public sealed interface Action permits Instant, Armed, Area {
 	}
 
 	/** Runs at once, with no target. */
@@ -37,6 +38,17 @@ public final class RtsCommands {
 	 */
 	public record Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
 			BiConsumer<RtsSelectionClient.Hover, Boolean> fire) implements Action {
+	}
+
+	/**
+	 * Arms a mode that marks an area: drag a rectangle in the world, set the depth with the scroll wheel, then
+	 * left-click to fire it.
+	 *
+	 * @param hint whether and why an area can be started on a hover
+	 * @param fire carries the mode out on the marked area; the flag is Shift, which queues the order
+	 */
+	public record Area(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
+			BiConsumer<RtsDigArea, Boolean> fire) implements Action {
 	}
 
 	/**
@@ -62,6 +74,8 @@ public final class RtsCommands {
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
 			order("mine", () -> new ItemStack(Items.IRON_PICKAXE), InputConstants.KEY_B, RtsOrderKind.MINE),
 			order("place", () -> new ItemStack(Items.STONE), InputConstants.KEY_V, RtsOrderKind.PLACE),
+			new RtsCommand("dig", () -> new ItemStack(Items.IRON_SHOVEL), InputConstants.KEY_C,
+					new Area(RtsOrderHintClient::dig, RtsOrdersClient::sendDig)),
 			new RtsCommand("stop", () -> new ItemStack(Items.BARRIER), InputConstants.KEY_G,
 					new Instant(RtsOrdersClient::sendStop)),
 			new RtsCommand("spawn", () -> new ItemStack(Items.VILLAGER_SPAWN_EGG), InputConstants.KEY_N,

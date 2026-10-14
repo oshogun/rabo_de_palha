@@ -23,8 +23,8 @@ import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
  * the left button uses the command bar, fires the armed command or selects workers (click or box drag), the right
- * button disarms the armed command or orders a move, the wheel zooms instead of changing the
- * spectator fly speed, and dragging with the middle button rotates (horizontally) and tilts (vertically)
+ * button disarms the armed command or orders a move, the wheel sets a dig area's depth or else zooms instead of
+ * changing the spectator fly speed, and dragging with the middle button rotates (horizontally) and tilts (vertically)
  * the camera. The drag uses cursor-position deltas rather than vanilla's accumulated movement.
  */
 @Mixin(MouseHandler.class)
@@ -82,6 +82,8 @@ abstract class MouseHandlerMixin {
 					RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
 				}
 			} else if (action == 0) {
+				// An area drag ends here and enters its depth step; its press already set the swallow flag.
+				RtsCommandClient.onLeftRelease();
 				if (this.rabodepalha$swallowLeftRelease) {
 					this.rabodepalha$swallowLeftRelease = false;
 				} else {
@@ -102,6 +104,14 @@ abstract class MouseHandlerMixin {
 		if (!this.rabodepalha$rtsWorldInput(handle) || this.minecraft.player == null) {
 			return;
 		}
+		boolean shift = InputConstants.isKeyDown(InputConstants.KEY_LSHIFT)
+				|| InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
+		// Raw sign on purpose: positive is wheel up, which RtsAreaDrag.scroll maps to a shallower area.
+		if (RtsCommandClient.onScroll(yoffset, shift)) {
+			this.minecraft.getFramerateLimitTracker().onInputReceived();
+			ci.cancel();
+			return;
+		}
 		boolean discreteScroll = this.minecraft.options.discreteMouseScroll().get();
 		double sensitivity = this.minecraft.options.mouseWheelSensitivity().get();
 		RtsClient.zoom((discreteScroll ? Math.signum(yoffset) : yoffset) * sensitivity);
@@ -116,6 +126,7 @@ abstract class MouseHandlerMixin {
 			return;
 		}
 		RtsSelectionClient.onDragMove(this.xpos, this.ypos);
+		RtsCommandClient.onDragMove(this.xpos, this.ypos);
 		if (this.rabodepalha$middleDragging && this.minecraft.isWindowActive()) {
 			double dx = this.xpos - this.rabodepalha$dragLastX;
 			double dy = this.ypos - this.rabodepalha$dragLastY;

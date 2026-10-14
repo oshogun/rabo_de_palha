@@ -61,16 +61,24 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
 
 - Pan with `W A S D` or by moving the mouse to the screen edge. Speed grows with height and is
   capped, and the server skips its "moved too quickly" check for players in RTS mode only.
-- Zoom (camera height) with the mouse wheel; rotate with `Q`/`E` or middle-drag. `E` does not
+- Zoom (camera height) with the mouse wheel (`Shift`+wheel while setting a dig depth); rotate with `Q`/`E` or middle-drag. `E` does not
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
 - Orders: with workers selected, right-click a block to send them there (move). A command bar at
   the bottom centre of the screen (it scales with the GUI scale) has buttons for Move, Mine, Place,
-  Stop and Spawn worker; hovering a button shows its name and hotkey. The hotkeys are `M` (Move),
-  `B` (Mine), `V` (Place), `G` (Stop) and `N` (Spawn worker), all rebindable. Clicks on the bar
+  Dig, Stop and Spawn worker; hovering a button shows its name and hotkey. The hotkeys are `M`
+  (Move), `B` (Mine), `V` (Place), `C` (Dig), `G` (Stop) and `N` (Spawn worker), all rebindable.
+  Clicks on the bar
   never select or order anything behind it.
   - Move, Mine, Place and Spawn worker arm a mode; the next left-click on a block carries it out.
     Place uses the block in the selected hotbar slot (the hotbar scroll/number keys still work, and
     the HUD shows `Place: <item>`). Pressing the same button or hotkey again disarms it.
+  - Dig (`C` or the Dig button) digs out an area. Left-drag on the terrain to mark the rectangle;
+    its top is the higher of the two picked blocks. Release, then scroll the wheel down to dig
+    deeper or up to make it shallower (at least 1 layer); `Shift`+wheel still zooms meanwhile.
+    Left-click confirms (`Shift`-click appends and keeps Dig armed). Right-click or `Esc` cancels
+    the area and keeps Dig armed; a second press disarms it. The area is drawn as a box with its
+    size and volume (e.g. `12×8×3 = 288`); the box turns red when the area is invalid: over 4096
+    blocks, beyond 128 blocks, outside the world height or over unloaded chunks.
   - `Shift`-click appends to each worker's queue and keeps the mode armed for the next target;
     otherwise the queue is replaced and the mode disarms. An invalid target keeps the mode armed
     and shows the reason. Right-click or `Esc` disarms the mode (`Esc` disarms before it clears

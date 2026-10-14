@@ -16,6 +16,7 @@ public final class ModPayloads {
 		PayloadTypeRegistry.serverboundPlay().register(RtsOrderPayload.TYPE, RtsOrderPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsStopPayload.TYPE, RtsStopPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsSpawnPayload.TYPE, RtsSpawnPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsDigPayload.TYPE, RtsDigPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsStatePayload.TYPE, RtsStatePayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsOrderFeedbackPayload.TYPE,
 				RtsOrderFeedbackPayload.STREAM_CODEC);
@@ -29,5 +30,7 @@ public final class ModPayloads {
 				(payload, context) -> RtsOrders.handleStop(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsSpawnPayload.TYPE,
 				(payload, context) -> RtsOrders.handleSpawn(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsDigPayload.TYPE,
+				(payload, context) -> RtsOrders.handleDig(context.player(), payload));
 	}
 }

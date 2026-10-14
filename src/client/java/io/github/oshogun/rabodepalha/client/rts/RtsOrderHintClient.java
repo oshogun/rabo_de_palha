@@ -69,6 +69,21 @@ public final class RtsOrderHintClient {
 	}
 
 	/**
+	 * Dig armed and no area started yet: it needs a selection and a block under the cursor to start the drag.
+	 * The area itself is checked by {@link RtsOrdersClient#digProblem} once it exists. The hint has no kind and
+	 * uses its key as is.
+	 */
+	public static RtsOrderHint.Hint dig(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (hover.block() == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.dig.hint.start", true, null);
+	}
+
+	/**
 	 * The hint's text: the block name for mine, the held item name for place, the reason when invalid. A spawn
 	 * hint has no kind and uses its key as is.
 	 */
