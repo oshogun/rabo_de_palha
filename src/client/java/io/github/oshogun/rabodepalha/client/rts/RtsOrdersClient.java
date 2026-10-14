@@ -11,13 +11,17 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
+import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
@@ -55,10 +59,9 @@ public final class RtsOrdersClient {
 			RtsHud.showFeedback(false, RtsOrderHintClient.text(hint, hover));
 			return;
 		}
-		int slot = client.player.getInventory().getSelectedSlot();
 		if (ClientPlayNetworking.canSend(RtsOrderPayload.TYPE)) {
 			ClientPlayNetworking.send(new RtsOrderPayload(RtsSelectionClient.selectedIds(), kind,
-					hit.getBlockPos(), hit.getDirection(), slot, shift));
+					hit.getBlockPos(), hit.getDirection(), RtsItemPickClient.picked(), shift));
 		}
 	}
 
@@ -142,6 +145,62 @@ public final class RtsOrdersClient {
 		}
 		if (ClientPlayNetworking.canSend(RtsSpawnPayload.TYPE)) {
 			ClientPlayNetworking.send(new RtsSpawnPayload(hit.getBlockPos()));
+		}
+	}
+
+	/** Deposits into the hovered container; the caller has checked the deposit hint. */
+	public static void sendDeposit(RtsSelectionClient.Hover hover, boolean shift) {
+		BlockHitResult hit = hover.block();
+		if (hit != null) {
+			sendDeposit(hit.getBlockPos(), shift);
+		}
+	}
+
+	/**
+	 * Puts the selected workers' items into the container at {@code pos}, like {@code /rdp deposit <pos> [item]}:
+	 * only the picked item when one is picked, everything otherwise.
+	 */
+	public static void sendDeposit(BlockPos pos, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsDepositPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsDepositPayload(RtsSelectionClient.selectedIds(), pos,
+					RtsItemPickClient.picked(), shift));
+		}
+	}
+
+	/** Asks for the contents of the hovered container; the caller has checked the withdraw hint. */
+	public static void requestContents(RtsSelectionClient.Hover hover) {
+		BlockHitResult hit = hover.block();
+		if (hit != null) {
+			requestContents(hit.getBlockPos());
+		}
+	}
+
+	/**
+	 * Asks the server for the contents of the container at {@code pos}; the reply opens the withdraw view. The
+	 * server repeats every check.
+	 */
+	public static void requestContents(BlockPos pos) {
+		RtsContainerViewClient.request(pos);
+		if (ClientPlayNetworking.canSend(RtsContentsRequestPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsContentsRequestPayload(pos));
+		}
+	}
+
+	/**
+	 * Withdraws {@code count} of {@code item} from the container at {@code pos} with each selected worker, like
+	 * {@code /rdp withdraw <pos> <item> [count]}. The count is per worker.
+	 */
+	public static void sendWithdraw(BlockPos pos, Identifier item, int count, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsWithdrawPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsWithdrawPayload(RtsSelectionClient.selectedIds(), pos, item, count, shift));
 		}
 	}
 }

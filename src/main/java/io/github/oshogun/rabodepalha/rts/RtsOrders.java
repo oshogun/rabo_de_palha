@@ -4,8 +4,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.function.Supplier;
 
+import io.github.oshogun.rabodepalha.network.RtsContentsPayload;
+import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
+import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
@@ -13,14 +17,18 @@ import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.network.RtsWatchPayload;
+import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
+import io.github.oshogun.rabodepalha.worker.task.Containers;
+import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import org.jspecify.annotations.Nullable;
 
@@ -28,14 +36,17 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.permissions.PermissionSet;
-import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -50,6 +61,8 @@ public final class RtsOrders {
 	public static final double MAX_TARGET_DISTANCE = 128.0;
 	/** From a worker to the target. Only bounds the walk; reach is up to the task. */
 	public static final double MAX_WORKER_DISTANCE = 128.0;
+	/** The largest per-worker withdraw count; matches the withdraw task codec's range. */
+	public static final int MAX_WITHDRAW_COUNT = Integer.MAX_VALUE;
 
 	private RtsOrders() {
 	}
@@ -151,6 +164,98 @@ public final class RtsOrders {
 		return sendFeedback(player, applyRemoveTask(player, payload, permissions));
 	}
 
+	/** Entry point for the client's deposit order. */
+	public static Result handleDeposit(ServerPlayer player, RtsDepositPayload payload) {
+		return handleDeposit(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link DepositTask} on the clicked container, like {@code /rdp deposit <pos>
+	 * [item]}: everything, or only the picked item. Then sends the feedback.
+	 */
+	public static Result handleDeposit(ServerPlayer player, RtsDepositPayload payload, PermissionSet permissions) {
+		return handleDeposit(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleDeposit(ServerPlayer, RtsDepositPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleDeposit(ServerPlayer player, RtsDepositPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyDeposit(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's withdraw order. */
+	public static Result handleWithdraw(ServerPlayer player, RtsWithdrawPayload payload) {
+		return handleWithdraw(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link WithdrawTask} of the payload's item and count on the clicked container,
+	 * like {@code /rdp withdraw <pos> <item> [count]}. The count is per worker. Then sends the feedback.
+	 */
+	public static Result handleWithdraw(ServerPlayer player, RtsWithdrawPayload payload, PermissionSet permissions) {
+		return handleWithdraw(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleWithdraw(ServerPlayer, RtsWithdrawPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleWithdraw(ServerPlayer player, RtsWithdrawPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyWithdraw(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's contents request. */
+	public static ContentsResult handleContents(ServerPlayer player, RtsContentsRequestPayload payload) {
+		return handleContents(player, payload, player.permissions());
+	}
+
+	/**
+	 * Answers with a read-only snapshot of the clicked container when the request passes the order checks, or with
+	 * the feedback only on rejection.
+	 */
+	public static ContentsResult handleContents(ServerPlayer player, RtsContentsRequestPayload payload,
+			PermissionSet permissions) {
+		return handleContents(player, payload, permissions, MAX_TARGET_DISTANCE);
+	}
+
+	/** As {@link #handleContents(ServerPlayer, RtsContentsRequestPayload, PermissionSet)}, with an explicit distance limit (for tests). */
+	public static ContentsResult handleContents(ServerPlayer player, RtsContentsRequestPayload payload,
+			PermissionSet permissions, double maxTargetDistance) {
+		ContentsResult contents = contents(player, payload, permissions, maxTargetDistance);
+		if (!contents.result().ok()) {
+			sendFeedback(player, contents.result());
+		} else if (ServerPlayNetworking.canSend(player, RtsContentsPayload.TYPE)) {
+			ServerPlayNetworking.send(player, new RtsContentsPayload(payload.pos(), contents.entries()));
+		}
+		return contents;
+	}
+
+	/** A contents request's outcome and, when it is ok, the container's items summed by id. */
+	public record ContentsResult(Result result, List<RtsItemPicker.Entry> entries) {
+		public ContentsResult {
+			entries = List.copyOf(entries);
+		}
+	}
+
+	/** Checks a contents request and summarizes the container; sends nothing. */
+	public static ContentsResult contents(ServerPlayer player, RtsContentsRequestPayload payload,
+			PermissionSet permissions, double maxTargetDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return new ContentsResult(playerProblem, List.of());
+		}
+		ServerLevel level = player.level();
+		BlockPos pos = payload.pos().immutable();
+		Result targetProblem = checkTarget(player, level, pos, maxTargetDistance);
+		if (targetProblem != null) {
+			return new ContentsResult(targetProblem, List.of());
+		}
+		Container container = Containers.find(level, pos);
+		if (container == null) {
+			return new ContentsResult(reject("rabodepalha.rts.order.not_container"), List.of());
+		}
+		List<RtsItemPicker.Entry> entries = Containers.summarize(container);
+		return new ContentsResult(new Result(true, 0, Component.empty()), entries);
+	}
+
 	private static Result sendFeedback(ServerPlayer player, Result result) {
 		if (ServerPlayNetworking.canSend(player, RtsOrderFeedbackPayload.TYPE)) {
 			ServerPlayNetworking.send(player, new RtsOrderFeedbackPayload(result.ok(), result.message()));
@@ -191,9 +296,9 @@ public final class RtsOrders {
 			return reject("rabodepalha.rts.order.air");
 		}
 		if (kind == RtsOrderKind.PLACE) {
-			int slot = payload.hotbarSlot();
-			ItemStack stack = Inventory.isHotbarSlot(slot) ? player.getInventory().getItem(slot) : ItemStack.EMPTY;
-			if (!(stack.getItem() instanceof BlockItem blockItem)) {
+			// The block comes from the item picked in the workers' inventory; a worker without it fails in PlaceTask.
+			Item item = payload.item().flatMap(BuiltInRegistries.ITEM::getOptional).orElse(null);
+			if (!(item instanceof BlockItem blockItem)) {
 				return reject("rabodepalha.rts.order.no_block");
 			}
 			placeState = blockItem.getBlock().defaultBlockState();
@@ -251,6 +356,75 @@ public final class RtsOrders {
 				payload.append() ? "rabodepalha.rts.order.dig_queued" : "rabodepalha.rts.order.dig_replaced",
 				area.sizeX(), area.sizeZ(), area.sizeY(), workers.valid().size());
 		return assign(player, workers, payload.append(), () -> new DigAreaTask(min, max), applied);
+	}
+
+	private static Result applyDeposit(ServerPlayer player, RtsDepositPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+		ServerLevel level = player.level();
+		BlockPos pos = payload.pos().immutable();
+		Result containerProblem = checkContainer(player, level, pos, maxTargetDistance);
+		if (containerProblem != null) {
+			return containerProblem;
+		}
+		Optional<Identifier> item = payload.item();
+		if (item.isPresent() && knownItem(item.get()) == null) {
+			return reject("rabodepalha.rts.order.unknown_item");
+		}
+
+		Workers workers = resolveWorkers(level, ids, Vec3.atBottomCenterOf(pos), maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		Component what = item.map(id -> (Component) Component.translatable(knownItem(id).getDescriptionId()))
+				.orElseGet(() -> Component.translatable("rabodepalha.rts.order.deposit_everything"));
+		Component applied = Component.translatable("rabodepalha.rts.order.deposit_applied",
+				what, pos.getX(), pos.getY(), pos.getZ(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new DepositTask(pos, item), applied);
+	}
+
+	private static Result applyWithdraw(ServerPlayer player, RtsWithdrawPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+		ServerLevel level = player.level();
+		BlockPos pos = payload.pos().immutable();
+		Result containerProblem = checkContainer(player, level, pos, maxTargetDistance);
+		if (containerProblem != null) {
+			return containerProblem;
+		}
+		int count = payload.count();
+		if (count < 1 || count > MAX_WITHDRAW_COUNT) {
+			return reject("rabodepalha.rts.order.bad_count");
+		}
+		Identifier itemId = payload.item();
+		Item item = knownItem(itemId);
+		if (item == null) {
+			return reject("rabodepalha.rts.order.unknown_item");
+		}
+
+		Workers workers = resolveWorkers(level, ids, Vec3.atBottomCenterOf(pos), maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		int size = workers.valid().size();
+		Component applied = Component.translatable(
+				size == 1 ? "rabodepalha.rts.order.withdraw_applied_one" : "rabodepalha.rts.order.withdraw_applied",
+				count, Component.translatable(item.getDescriptionId()), size);
+		return assign(player, workers, payload.append(), () -> new WithdrawTask(pos, itemId, count), applied);
 	}
 
 	/** The workers an order resolved to, and how many ids were rejected and why. */
@@ -451,6 +625,25 @@ public final class RtsOrders {
 			return reject("rabodepalha.rts.order.not_loaded");
 		}
 		return null;
+	}
+
+	/** Runs {@link #checkTarget} on {@code pos} and rejects blocks that are not a container; null when it is one. */
+	private static @Nullable Result checkContainer(ServerPlayer player, ServerLevel level, BlockPos pos,
+			double maxTargetDistance) {
+		Result targetProblem = checkTarget(player, level, pos, maxTargetDistance);
+		if (targetProblem != null) {
+			return targetProblem;
+		}
+		if (Containers.find(level, pos) == null) {
+			return reject("rabodepalha.rts.order.not_container");
+		}
+		return null;
+	}
+
+	/** The registered item with {@code id}, or null for unknown ids and air. */
+	private static @Nullable Item knownItem(Identifier id) {
+		Item item = BuiltInRegistries.ITEM.getOptional(id).orElse(Items.AIR);
+		return item == Items.AIR ? null : item;
 	}
 
 	private static Task<WorkerEntity> newTask(RtsOrderKind kind, BlockPos target, BlockState placeState) {

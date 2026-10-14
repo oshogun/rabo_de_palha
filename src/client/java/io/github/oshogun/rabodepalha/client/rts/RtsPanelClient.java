@@ -7,14 +7,18 @@ import org.jspecify.annotations.Nullable;
 import com.mojang.blaze3d.platform.Window;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
 
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
+import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsPanel;
 import io.github.oshogun.rabodepalha.rts.WorkerSnapshot;
 
 /**
  * Client side of the RTS side panel: which layout the watched workers get, and what a left press on it does. A
- * row narrows the selection to its worker, Remove drops a queued task, Clear stops the worker; every press on
+ * row narrows the selection to its worker, Remove drops a queued task, Clear stops the worker, an item cell
+ * picks (or unpicks) that item; every press on
  * the panel is consumed, like presses on the command bar.
  */
 public final class RtsPanelClient {
@@ -31,7 +35,7 @@ public final class RtsPanelClient {
 		int guiW = window.getGuiScaledWidth();
 		int guiH = window.getGuiScaledHeight();
 		if (watched.size() > 1) {
-			return RtsPanel.multi(watched.size(), guiW, guiH);
+			return RtsPanel.multi(watched.size(), RtsItemPickClient.combined().size(), guiW, guiH);
 		}
 		WorkerSnapshot snapshot = RtsSnapshotsClient.get(watched.get(0));
 		if (snapshot == null) {
@@ -86,6 +90,22 @@ public final class RtsPanelClient {
 			case RtsPanel.Hit.Clear clear -> {
 				if (watched.size() == 1) {
 					RtsOrdersClient.sendStop(List.of(watched.get(0)));
+				}
+			}
+			case RtsPanel.Hit.Item item -> {
+				if (watched.size() == 1) {
+					WorkerSnapshot snapshot = RtsSnapshotsClient.get(watched.get(0));
+					if (snapshot != null && item.index() < snapshot.inventory().size()) {
+						ItemStack stack = snapshot.inventory().get(item.index());
+						if (!stack.isEmpty()) {
+							RtsItemPickClient.pick(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+						}
+					}
+				} else {
+					List<RtsItemPicker.Entry> combined = RtsItemPickClient.combined();
+					if (item.index() < combined.size()) {
+						RtsItemPickClient.pick(combined.get(item.index()).item());
+					}
 				}
 			}
 			case RtsPanel.Hit.Body body -> {

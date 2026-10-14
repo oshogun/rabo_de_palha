@@ -35,9 +35,15 @@ public final class RtsCommands {
 	 *
 	 * @param hint whether and why the mode can be carried out on a hover
 	 * @param fire carries the mode out on a hover; the flag is Shift, which queues the order
+	 * @param staysArmed whether the mode stays armed after firing, for a mode that something else disarms
 	 */
 	public record Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
-			BiConsumer<RtsSelectionClient.Hover, Boolean> fire) implements Action {
+			BiConsumer<RtsSelectionClient.Hover, Boolean> fire, boolean staysArmed) implements Action {
+		/** A mode that disarms once fired, unless Shift is held. */
+		public Armed(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
+				BiConsumer<RtsSelectionClient.Hover, Boolean> fire) {
+			this(hint, fire, false);
+		}
 	}
 
 	/**
@@ -79,7 +85,13 @@ public final class RtsCommands {
 			new RtsCommand("stop", () -> new ItemStack(Items.BARRIER), InputConstants.KEY_G,
 					new Instant(RtsOrdersClient::sendStop)),
 			new RtsCommand("spawn", () -> new ItemStack(Items.VILLAGER_SPAWN_EGG), InputConstants.KEY_N,
-					new Armed(RtsOrderHintClient::spawn, (hover, shift) -> RtsOrdersClient.sendSpawn(hover))));
+					new Armed(RtsOrderHintClient::spawn, (hover, shift) -> RtsOrdersClient.sendSpawn(hover))),
+			new RtsCommand("deposit", () -> new ItemStack(Items.CHEST), InputConstants.KEY_J,
+					new Armed(RtsOrderHintClient::deposit, RtsOrdersClient::sendDeposit)),
+			// Withdraw stays armed while the contents view is open; confirming or closing the view disarms it.
+			new RtsCommand("withdraw", () -> new ItemStack(Items.HOPPER), InputConstants.KEY_K,
+					new Armed(RtsOrderHintClient::withdraw, (hover, shift) -> RtsOrdersClient.requestContents(hover),
+							true)));
 
 	private RtsCommands() {
 	}

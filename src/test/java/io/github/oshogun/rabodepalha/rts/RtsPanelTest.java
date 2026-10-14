@@ -21,6 +21,7 @@ class RtsPanelTest {
 		parts.addAll(l.remove());
 		parts.addAll(l.rows());
 		parts.addAll(l.slots());
+		parts.addAll(l.items());
 		parts.removeIf(r -> r.equals(RtsPanel.EMPTY));
 		return parts;
 	}
@@ -57,6 +58,10 @@ class RtsPanelTest {
 				for (int workers : new int[] {2, 8, 16}) {
 					assertFits(RtsPanel.multi(workers, guiWidth, guiHeight), guiWidth, guiHeight,
 							at + " workers " + workers);
+					for (int items : new int[] {1, 9, 40}) {
+						assertFits(RtsPanel.multi(workers, items, guiWidth, guiHeight), guiWidth, guiHeight,
+								at + " workers " + workers + " items " + items);
+					}
 				}
 			}
 		}
@@ -151,8 +156,10 @@ class RtsPanelTest {
 			Rect row = l.queued().get(i);
 			assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, row.x() + 1, row.y() + 1));
 		}
-		Rect slot = l.slots().get(0);
-		assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, slot.x() + 1, slot.y() + 1));
+		for (int i = 0; i < l.slots().size(); i++) {
+			Rect slot = l.slots().get(i);
+			assertEquals(new RtsPanel.Hit.Item(i), RtsPanel.hitTest(l, slot.x() + 1, slot.y() + 1));
+		}
 		assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, l.header().x() + 1, l.header().y() + 1));
 		Rect b = l.bounds();
 		assertEquals(RtsPanel.Hit.NONE, RtsPanel.hitTest(l, b.x() - 0.01, b.y() + 1));
@@ -169,5 +176,49 @@ class RtsPanelTest {
 		}
 		assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, l.more().x() + 1, l.more().y() + 1));
 		assertEquals(RtsPanel.Hit.NONE, RtsPanel.hitTest(l, 10, 10));
+	}
+
+	@Test
+	void multiPutsTheCombinedItemsBelowTheWorkers() {
+		RtsPanel.Layout l = RtsPanel.multi(4, 10, 960, 540);
+		assertEquals(4, l.rows().size());
+		assertEquals(10, l.items().size());
+		assertTrue(l.slots().isEmpty());
+		Rect lastRow = l.rows().get(3);
+		assertEquals(lastRow.y() + RtsPanel.ROW + RtsPanel.GAP, l.items().get(0).y());
+		assertEquals(l.items().get(0).x() + RtsPanel.CELL, l.items().get(1).x());
+		assertEquals(l.items().get(0).y() + RtsPanel.CELL, l.items().get(8).y());
+		assertEquals(RtsPanel.multi(4, 960, 540).rows(), RtsPanel.multi(4, 0, 960, 540).rows());
+		assertTrue(RtsPanel.multi(4, 0, 960, 540).items().isEmpty());
+	}
+
+	@Test
+	void workerRowsGiveWayToTheItemGrid() {
+		// 213x120: room for few rows; the grid keeps its rows and the workers collapse.
+		RtsPanel.Layout without = RtsPanel.multi(16, 213, 120);
+		RtsPanel.Layout with = RtsPanel.multi(16, 8, 213, 120);
+		assertEquals(8, with.items().size());
+		assertTrue(with.rows().size() < without.rows().size());
+		assertEquals(16, with.rows().size() + with.hidden());
+		assertFalse(with.rows().isEmpty() && with.more().equals(RtsPanel.EMPTY));
+		// A grid too tall for the panel is cut, but one worker row stays.
+		RtsPanel.Layout huge = RtsPanel.multi(3, 400, 213, 120);
+		assertTrue(huge.items().size() < 400);
+		assertFalse(huge.items().isEmpty());
+		assertFalse(huge.rows().isEmpty() && huge.more().equals(RtsPanel.EMPTY));
+	}
+
+	@Test
+	void hitTestMultiItems() {
+		RtsPanel.Layout l = RtsPanel.multi(3, 12, 960, 540);
+		for (int i = 0; i < l.items().size(); i++) {
+			Rect r = l.items().get(i);
+			assertEquals(new RtsPanel.Hit.Item(i), RtsPanel.hitTest(l, r.x() + r.w() / 2.0, r.y() + r.h() / 2.0));
+		}
+		Rect first = l.items().get(0);
+		assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, first.x() + 1, first.y() - 1));
+		Rect last = l.items().get(11);
+		assertEquals(RtsPanel.Hit.BODY, RtsPanel.hitTest(l, last.x() + last.w() + 0.5, last.y() + 1));
+		assertEquals(new RtsPanel.Hit.Row(0), RtsPanel.hitTest(l, l.rows().get(0).x() + 1, l.rows().get(0).y() + 1));
 	}
 }

@@ -1,8 +1,16 @@
 package io.github.oshogun.rabodepalha.worker.task;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.jspecify.annotations.Nullable;
 
+import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -16,7 +24,10 @@ import net.minecraft.world.level.block.state.BlockState;
  * slot rules ({@link Container#canPlaceItem}, and no shulker box inside a shulker box) and stack limits apply, face-based
  * {@code WorldlyContainer} rules do not.
  */
-final class Containers {
+public final class Containers {
+	/** The most distinct items {@link #summarize} reports for one container. */
+	public static final int MAX_CONTENTS = 64;
+
 	private Containers() {
 	}
 
@@ -25,7 +36,7 @@ final class Containers {
 	 * null if there is none. Entity containers (minecart chests) and block-only containers (composter)
 	 * do not count.
 	 */
-	static @Nullable Container find(Level level, BlockPos pos) {
+	public static @Nullable Container find(Level level, BlockPos pos) {
 		if (!(level.getBlockEntity(pos) instanceof Container container)) {
 			return null;
 		}
@@ -36,6 +47,27 @@ final class Containers {
 			return combined != null ? combined : container;
 		}
 		return container;
+	}
+
+	/**
+	 * The non-empty slots of {@code container} merged by item id, whatever their components, in
+	 * first-seen order. Totals may exceed the max stack size; at most {@link #MAX_CONTENTS} items.
+	 */
+	public static List<RtsItemPicker.Entry> summarize(Container container) {
+		Map<Identifier, Integer> totals = new LinkedHashMap<>();
+		for (int i = 0; i < container.getContainerSize(); i++) {
+			ItemStack slot = container.getItem(i);
+			if (slot.isEmpty()) {
+				continue;
+			}
+			Identifier item = BuiltInRegistries.ITEM.getKey(slot.getItem());
+			if (totals.containsKey(item) || totals.size() < MAX_CONTENTS) {
+				totals.merge(item, slot.getCount(), Integer::sum);
+			}
+		}
+		List<RtsItemPicker.Entry> entries = new ArrayList<>(totals.size());
+		totals.forEach((item, count) -> entries.add(new RtsItemPicker.Entry(item, count)));
+		return entries;
 	}
 
 	/**

@@ -127,7 +127,7 @@ class RtsOrderHintTest {
 				new Target(false, true, false, true, Math.nextUp(MAX_SQR)));
 
 		for (Target noWorker : targets) {
-			Target withWorker = new Target(true, noWorker.blockHit(), noWorker.blockIsAir(), noWorker.holdingBlock(),
+			Target withWorker = new Target(true, noWorker.blockHit(), noWorker.blockIsAir(), noWorker.pickedBlock(),
 					noWorker.targetDistSqr());
 			for (int count : new int[] {0, 1}) {
 				for (RtsOrderKind kind : RtsOrderKind.values()) {
@@ -191,6 +191,32 @@ class RtsOrderHintTest {
 	@Test
 	void spawnIgnoresHeldItem() {
 		assertTrue(RtsOrderHint.evaluateSpawn(new Target(false, true, false, false, 16.0), true).valid());
+	}
+
+	@Test
+	void containerIsValid() {
+		assertEquals(new Hint("rabodepalha.rts.hint.deposit", true, null),
+				RtsOrderHint.evaluateContainer(1, true, "rabodepalha.rts.hint.deposit"));
+		assertEquals(new Hint("rabodepalha.rts.hint.withdraw", true, null),
+				RtsOrderHint.evaluateContainer(3, true, "rabodepalha.rts.hint.withdraw"));
+	}
+
+	@Test
+	void containerWithoutSelectionIsRejected() {
+		assertEquals(new Hint("rabodepalha.rts.order.nothing_selected", false, null),
+				RtsOrderHint.evaluateContainer(0, true, "rabodepalha.rts.hint.deposit"));
+	}
+
+	@Test
+	void nonContainerIsRejected() {
+		assertEquals(new Hint("rabodepalha.rts.order.not_container", false, null),
+				RtsOrderHint.evaluateContainer(1, false, "rabodepalha.rts.hint.withdraw"));
+	}
+
+	@Test
+	void containerNothingSelectedBeatsNotContainer() {
+		assertEquals("rabodepalha.rts.order.nothing_selected",
+				RtsOrderHint.evaluateContainer(0, false, "rabodepalha.rts.hint.deposit").key());
 	}
 
 	@Test

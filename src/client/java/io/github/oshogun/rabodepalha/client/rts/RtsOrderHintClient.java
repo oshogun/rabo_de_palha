@@ -1,15 +1,20 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.Optional;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.BlockItem;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
@@ -17,7 +22,7 @@ import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 
 /**
  * Client glue for {@link RtsOrderHint}: fills in the {@link RtsOrderHint.Target} from the cursor hover, the
- * selection and the held item, and turns the resulting hint into text. The order targets the block hit, so a
+ * selection and the item picked in the panel, and turns the resulting hint into text. The order targets the block hit, so a
  * worker under the cursor does not change the hint.
  */
 public final class RtsOrderHintClient {
@@ -40,7 +45,7 @@ public final class RtsOrderHintClient {
 			distSqr = player.getEyePosition().distanceToSqr(Vec3.atCenterOf(target));
 		}
 		RtsOrderHint.Target target = new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir,
-				heldItem(client).getItem() instanceof BlockItem, distSqr);
+				pickedBlock(), distSqr);
 		return RtsOrderHint.evaluate(RtsSelectionClient.count(), kind, target);
 	}
 
@@ -64,7 +69,7 @@ public final class RtsOrderHintClient {
 			roomFree = WorkerSpawner.hasRoom(level, WorkerSpawner.feetOn(spot));
 		}
 		RtsOrderHint.Target target = new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir,
-				heldItem(client).getItem() instanceof BlockItem, distSqr);
+				pickedBlock(), distSqr);
 		return RtsOrderHint.evaluateSpawn(target, roomFree);
 	}
 
@@ -83,9 +88,31 @@ public final class RtsOrderHintClient {
 		return new RtsOrderHint.Hint("rabodepalha.rts.dig.hint.start", true, null);
 	}
 
+	/** Depositing into the hovered container: everything, or only the picked item. */
+	public static RtsOrderHint.Hint deposit(RtsSelectionClient.Hover hover) {
+		return RtsOrderHint.evaluateContainer(RtsSelectionClient.count(), isContainer(hover),
+				"rabodepalha.rts.hint.deposit");
+	}
+
+	/** Withdrawing from the hovered container, which first opens its contents. */
+	public static RtsOrderHint.Hint withdraw(RtsSelectionClient.Hover hover) {
+		return RtsOrderHint.evaluateContainer(RtsSelectionClient.count(), isContainer(hover),
+				"rabodepalha.rts.hint.withdraw");
+	}
+
 	/**
-	 * The hint's text: the block name for mine, the held item name for place, the reason when invalid. A spawn
-	 * hint has no kind and uses its key as is.
+	 * Whether the hovered block holds a container, from the client's block entities. It can disagree with the
+	 * server, which has the last word.
+	 */
+	private static boolean isContainer(RtsSelectionClient.Hover hover) {
+		ClientLevel level = Minecraft.getInstance().level;
+		BlockHitResult block = hover.block();
+		return level != null && block != null && level.getBlockEntity(block.getBlockPos()) instanceof Container;
+	}
+
+	/**
+	 * The hint's text: the block name for mine, the picked item name for place, the reason when invalid. A spawn
+	 * or container hint has no kind and uses its key as is.
 	 */
 	public static Component text(RtsOrderHint.Hint hint, RtsSelectionClient.Hover hover) {
 		if (hint.valid()) {
@@ -96,16 +123,24 @@ public final class RtsOrderHintClient {
 						client.level.getBlockState(block.getBlockPos()).getBlock().getName());
 			}
 			if (hint.kind() == RtsOrderKind.PLACE) {
-				return Component.translatable(hint.key(), heldItem(client).getHoverName());
+				return Component.translatable(hint.key(), pickedName().orElse(Component.empty()));
 			}
 		}
 		return Component.translatable(hint.key());
 	}
 
-	private static ItemStack heldItem(Minecraft client) {
-		if (client.player == null) {
-			return ItemStack.EMPTY;
-		}
-		return client.player.getInventory().getItem(client.player.getInventory().getSelectedSlot());
+	/** Whether the item picked in the panel is a block. */
+	public static boolean pickedBlock() {
+		return RtsItemPickClient.picked().map(RtsItemPicker::isBlock).orElse(false);
+	}
+
+	/** The name of the item picked in the panel, if any. */
+	public static Optional<Component> pickedName() {
+		return RtsItemPickClient.picked().flatMap(RtsOrderHintClient::itemName);
+	}
+
+	/** The display name of the item {@code id}, if it is registered. */
+	public static Optional<Component> itemName(Identifier id) {
+		return BuiltInRegistries.ITEM.getOptional(id).map(item -> new ItemStack(item).getHoverName());
 	}
 }

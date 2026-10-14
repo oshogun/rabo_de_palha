@@ -69,7 +69,8 @@ public final class RtsCommandClient {
 		if (!hint.valid()) {
 			RtsHud.showFeedback(false, RtsOrderHintClient.text(hint, hover));
 		}
-		if (STATE.onLeftClick(hint.valid(), shift) != null) {
+		// A mode that stays armed fires as if Shift were held, which keeps it armed; it still gets the real Shift.
+		if (STATE.onLeftClick(hint.valid(), shift || armed.staysArmed()) != null) {
 			armed.fire().accept(hover, shift);
 		}
 		return true;

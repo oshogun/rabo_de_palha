@@ -1,8 +1,11 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.List;
+import java.util.Optional;
 
 import com.mojang.blaze3d.platform.Window;
+
+import org.jspecify.annotations.Nullable;
 
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
@@ -13,17 +16,20 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.rts.RtsAreaDrag;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
+import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
+import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsPanel;
 import io.github.oshogun.rabodepalha.rts.RtsPickMath;
@@ -33,8 +39,9 @@ import io.github.oshogun.rabodepalha.worker.task.TaskSummary;
 
 /**
  * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
- * would use, what the armed command or a right-click would do at the cursor, the selection box while
- * dragging, the side panel with the watched workers, and the command bar with its tooltips.
+ * would use and what a deposit would put away, what the armed command or a right-click would do at the cursor,
+ * the selection box while dragging, the side panel with the watched workers, the withdraw view, and the command
+ * bar with its tooltips.
  */
 public final class RtsHud {
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
@@ -49,6 +56,7 @@ public final class RtsHud {
 	private static final int SLOT_BORDER_COLOR = 0x60FFFFFF;
 	private static final int TASK_COLOR = 0xFFFFFFA0;
 	private static final int LABEL_COLOR = 0xFFA0A0A0;
+	private static final int PICKED_COLOR = 0x80FFD84A;
 
 	/** How wide lines at the left margin may be this frame; narrower while the panel is on screen. */
 	private static int leftMaxWidth = Integer.MAX_VALUE;
@@ -107,21 +115,30 @@ public final class RtsHud {
 				feedback = null;
 			}
 		}
-		if (client.player != null) {
-			ItemStack held = client.player.getInventory().getItem(client.player.getInventory().getSelectedSlot());
-			if (held.getItem() instanceof BlockItem) {
-				leftText(graphics, client, Component.translatable("rabodepalha.rts.place_block", held.getHoverName()), y,
-						TEXT_COLOR);
-				y += lineHeight;
-			}
+		Optional<Component> pickedName = RtsOrderHintClient.pickedName();
+		if (RtsOrderHintClient.pickedBlock() && pickedName.isPresent()) {
+			leftText(graphics, client, Component.translatable("rabodepalha.rts.place_block", pickedName.get()), y,
+					TEXT_COLOR);
+			y += lineHeight;
+		}
+		RtsCommands.RtsCommand armedCommand = RtsCommandClient.armed();
+		if (armedCommand != null && armedCommand.id().equals("deposit")) {
+			Component what = pickedName
+					.<Component>map(name -> Component.translatable("rabodepalha.rts.deposit_item", name))
+					.orElseGet(() -> Component.translatable("rabodepalha.rts.deposit_all"));
+			leftText(graphics, client, what, y, TEXT_COLOR);
+			y += lineHeight;
 		}
 		int hovered = RtsCommandClient.hoveredButton();
 		RtsPanel.Hit panelHit = RtsPanelClient.hovered();
+		RtsContainerPanel.Layout view = RtsContainerViewClient.layout();
+		RtsContainerPanel.Hit viewHit = hoveredView(client, view);
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
 		RtsDigArea digArea = RtsCommandClient.digArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
-		} else if (hover != null && hovered < 0 && panelHit instanceof RtsPanel.Hit.None) {
+		} else if (hover != null && hovered < 0 && panelHit instanceof RtsPanel.Hit.None
+				&& viewHit instanceof RtsContainerPanel.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
 			// already states the reason.
 			RtsOrderHint.Hint hint = RtsCommandClient.currentHint(hover);
@@ -148,6 +165,9 @@ public final class RtsHud {
 
 		if (panel != null) {
 			extractPanel(graphics, client, panel, panelHit);
+		}
+		if (view != null) {
+			extractContainerView(graphics, client, view, viewHit);
 		}
 		extractCommandBar(graphics, client, hovered);
 	}
@@ -188,6 +208,12 @@ public final class RtsHud {
 				rowText(graphics, font, text, row, row.w(), TEXT_COLOR);
 			}
 			moreRow(graphics, font, layout, layout.hidden());
+			List<RtsItemPicker.Entry> combined = RtsItemPickClient.combined();
+			for (int i = 0; i < layout.items().size() && i < combined.size(); i++) {
+				RtsItemPicker.Entry entry = combined.get(i);
+				entryCell(graphics, font, layout.items().get(i), entry,
+						isPicked(entry.item()) || hit instanceof RtsPanel.Hit.Item h && h.index() == i);
+			}
 			return;
 		}
 
@@ -229,13 +255,86 @@ public final class RtsHud {
 		moreRow(graphics, font, layout, layout.hidden() + snapshot.queuedTotal() - snapshot.queued().size());
 		for (int i = 0; i < layout.slots().size() && i < snapshot.inventory().size(); i++) {
 			RtsCommandBar.Rect cell = layout.slots().get(i);
-			graphics.outline(cell.x(), cell.y(), cell.w(), cell.h(), SLOT_BORDER_COLOR);
 			ItemStack stack = snapshot.inventory().get(i);
+			if (!stack.isEmpty() && (isPicked(BuiltInRegistries.ITEM.getKey(stack.getItem()))
+					|| hit instanceof RtsPanel.Hit.Item h && h.index() == i)) {
+				graphics.fill(cell.x(), cell.y(), cell.x() + cell.w(), cell.y() + cell.h(), PICKED_COLOR);
+			}
+			graphics.outline(cell.x(), cell.y(), cell.w(), cell.h(), SLOT_BORDER_COLOR);
 			if (!stack.isEmpty()) {
 				graphics.item(stack, cell.x() + 1, cell.y() + 1);
 				graphics.itemDecorations(font, stack, cell.x() + 1, cell.y() + 1);
 			}
 		}
+	}
+
+	private static boolean isPicked(Identifier item) {
+		return RtsItemPickClient.picked().filter(item::equals).isPresent();
+	}
+
+	/**
+	 * Draws an entry's cell: a 1-count icon and the total as text, since totals may exceed a stack. With
+	 * {@code highlight} the cell is filled.
+	 */
+	private static void entryCell(GuiGraphicsExtractor graphics, Font font, RtsCommandBar.Rect cell,
+			RtsItemPicker.Entry entry, boolean highlight) {
+		if (highlight) {
+			graphics.fill(cell.x(), cell.y(), cell.x() + cell.w(), cell.y() + cell.h(), PICKED_COLOR);
+		}
+		graphics.outline(cell.x(), cell.y(), cell.w(), cell.h(), SLOT_BORDER_COLOR);
+		BuiltInRegistries.ITEM.getOptional(entry.item())
+				.ifPresent(item -> graphics.item(new ItemStack(item, 1), cell.x() + 1, cell.y() + 1));
+		if (entry.count() != 1) {
+			// Where itemDecorations puts a stack count: right-aligned at the bottom of the 16x16 icon.
+			String amount = Integer.toString(entry.count());
+			graphics.text(font, amount, cell.x() + 18 - font.width(amount), cell.y() + 10, TEXT_COLOR, true);
+		}
+	}
+
+	/** What the mouse cursor is on in the withdraw view. */
+	private static RtsContainerPanel.Hit hoveredView(Minecraft client, RtsContainerPanel.@Nullable Layout view) {
+		if (view == null || client.mouseHandler == null) {
+			return RtsContainerPanel.Hit.NONE;
+		}
+		return RtsContainerViewClient.hitAt(client.mouseHandler.xpos(), client.mouseHandler.ypos());
+	}
+
+	/**
+	 * Draws the withdraw view: the title with a Close button, the container's entries with the picked one
+	 * highlighted, then Minus, the count ("N each" with several workers selected), Plus and Confirm.
+	 */
+	private static void extractContainerView(GuiGraphicsExtractor graphics, Minecraft client,
+			RtsContainerPanel.Layout layout, RtsContainerPanel.Hit hit) {
+		Font font = client.font;
+		RtsCommandBar.Rect bounds = layout.bounds();
+		graphics.fill(bounds.x(), bounds.y(), bounds.x() + bounds.w(), bounds.y() + bounds.h(), PANEL_COLOR);
+		RtsCommandBar.Rect header = layout.header();
+		RtsCommandBar.Rect close = layout.close();
+		if (header.w() > 0) {
+			Component title = layout.hidden() > 0
+					? Component.empty().append(Component.translatable("rabodepalha.rts.withdraw.title")).append(" ")
+							.append(Component.translatable("rabodepalha.rts.panel.more", layout.hidden()))
+					: Component.translatable("rabodepalha.rts.withdraw.title");
+			rowText(graphics, font, title, header, header.w() - close.w() - 2, TEXT_COLOR);
+			button(graphics, font, close, Component.translatable("rabodepalha.rts.withdraw.close"),
+					hit instanceof RtsContainerPanel.Hit.Close);
+		}
+		List<RtsItemPicker.Entry> entries = RtsContainerViewClient.entries();
+		int selected = RtsContainerViewClient.selected();
+		for (int i = 0; i < layout.items().size() && i < entries.size(); i++) {
+			entryCell(graphics, font, layout.items().get(i), entries.get(i),
+					i == selected || hit instanceof RtsContainerPanel.Hit.Item h && h.index() == i);
+		}
+		button(graphics, font, layout.minus(), Component.literal("-"), hit instanceof RtsContainerPanel.Hit.Minus);
+		button(graphics, font, layout.plus(), Component.literal("+"), hit instanceof RtsContainerPanel.Hit.Plus);
+		RtsCommandBar.Rect count = layout.count();
+		if (selected >= 0 && count.w() > 0) {
+			Component text = RtsContainerViewClient.countText(RtsSelectionClient.count());
+			graphics.centeredText(font, clip(font, text, count.w()), count.x() + count.w() / 2,
+					count.y() + (count.h() - font.lineHeight) / 2 + 1, TEXT_COLOR);
+		}
+		button(graphics, font, layout.confirm(), Component.translatable("rabodepalha.rts.withdraw.confirm"),
+				hit instanceof RtsContainerPanel.Hit.Confirm);
 	}
 
 	private static Component currentTask(WorkerSnapshot snapshot) {

@@ -19,10 +19,15 @@ public final class ModPayloads {
 		PayloadTypeRegistry.serverboundPlay().register(RtsDigPayload.TYPE, RtsDigPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsWatchPayload.TYPE, RtsWatchPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsRemoveTaskPayload.TYPE, RtsRemoveTaskPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsDepositPayload.TYPE, RtsDepositPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsWithdrawPayload.TYPE, RtsWithdrawPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsContentsRequestPayload.TYPE,
+				RtsContentsRequestPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsStatePayload.TYPE, RtsStatePayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsOrderFeedbackPayload.TYPE,
 				RtsOrderFeedbackPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(RtsSnapshotPayload.TYPE, RtsSnapshotPayload.STREAM_CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(RtsContentsPayload.TYPE, RtsContentsPayload.STREAM_CODEC);
 
 		// Play receivers run on the server thread, so RtsMode may touch the player directly.
 		ServerPlayNetworking.registerGlobalReceiver(RtsTogglePayload.TYPE,
@@ -39,5 +44,11 @@ public final class ModPayloads {
 				(payload, context) -> RtsOrders.handleWatch(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsRemoveTaskPayload.TYPE,
 				(payload, context) -> RtsOrders.handleRemoveTask(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsDepositPayload.TYPE,
+				(payload, context) -> RtsOrders.handleDeposit(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsWithdrawPayload.TYPE,
+				(payload, context) -> RtsOrders.handleWithdraw(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsContentsRequestPayload.TYPE,
+				(payload, context) -> RtsOrders.handleContents(context.player(), payload));
 	}
 }

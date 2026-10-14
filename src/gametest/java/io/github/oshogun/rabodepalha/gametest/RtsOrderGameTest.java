@@ -1,5 +1,6 @@
 package io.github.oshogun.rabodepalha.gametest;
 
+import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.rts.RtsMode;
@@ -15,14 +16,17 @@ import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.PermissionLevel;
@@ -67,7 +71,7 @@ public class RtsOrderGameTest {
 		for (WorkerEntity worker : workers) {
 			ids.add(worker.getId());
 		}
-		return new RtsOrderPayload(ids, kind, helper.absolutePos(clicked), Direction.UP, 0, append);
+		return new RtsOrderPayload(ids, kind, helper.absolutePos(clicked), Direction.UP, Optional.empty(), append);
 	}
 
 	/** Every translation key in {@code message}, its siblings and its component arguments. */
@@ -163,7 +167,7 @@ public class RtsOrderGameTest {
 		Pig pig = helper.spawn(EntityTypes.PIG, WORKER_START);
 		ServerPlayer player = rtsPlayer(helper);
 		RtsOrderPayload payload = new RtsOrderPayload(List.of(Integer.MAX_VALUE, pig.getId()), RtsOrderKind.MOVE,
-				helper.absolutePos(CLICKED), Direction.UP, 0, false);
+				helper.absolutePos(CLICKED), Direction.UP, Optional.empty(), false);
 
 		RtsOrders.Result result = RtsOrders.handle(player, payload, LEVEL_2);
 
@@ -178,7 +182,7 @@ public class RtsOrderGameTest {
 		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
 		ServerPlayer player = rtsPlayer(helper);
 		RtsOrderPayload payload = new RtsOrderPayload(List.of(worker.getId(), Integer.MAX_VALUE), RtsOrderKind.MOVE,
-				helper.absolutePos(CLICKED), Direction.UP, 0, false);
+				helper.absolutePos(CLICKED), Direction.UP, Optional.empty(), false);
 
 		RtsOrders.Result result = RtsOrders.handle(player, payload, LEVEL_2);
 
@@ -261,21 +265,24 @@ public class RtsOrderGameTest {
 	}
 
 	@GameTest
-	public void placeUsesHotbarBlock(GameTestHelper helper) {
+	public void placeUsesItemId(GameTestHelper helper) {
 		layFloor(helper);
 		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
 		ServerPlayer player = rtsPlayer(helper);
-		player.getInventory().setItem(3, new ItemStack(Items.STONE));
-		player.getInventory().setItem(4, new ItemStack(Items.STICK));
+		// The player's own inventory no longer matters: the block comes from the picked item id.
+		player.getInventory().setItem(0, new ItemStack(Items.DIRT));
 		BlockPos clicked = helper.absolutePos(CLICKED);
 
-		for (int slot : new int[] {0, 4, 9, -1}) {
-			RtsOrderPayload bad = new RtsOrderPayload(List.of(worker.getId()), RtsOrderKind.PLACE, clicked, Direction.UP, slot, false);
+		List<Optional<Identifier>> bads = List.of(Optional.empty(), Optional.of(RaboDePalha.id("no_such_item")),
+				Optional.of(BuiltInRegistries.ITEM.getKey(Items.STICK)));
+		for (Optional<Identifier> item : bads) {
+			RtsOrderPayload bad = new RtsOrderPayload(List.of(worker.getId()), RtsOrderKind.PLACE, clicked, Direction.UP, item, false);
 			assertResult(helper, RtsOrders.handle(player, bad, LEVEL_2), false, 0, "no_block");
 		}
 		assertUntouched(helper, worker);
 
-		RtsOrderPayload payload = new RtsOrderPayload(List.of(worker.getId()), RtsOrderKind.PLACE, clicked, Direction.UP, 3, false);
+		RtsOrderPayload payload = new RtsOrderPayload(List.of(worker.getId()), RtsOrderKind.PLACE, clicked, Direction.UP,
+				Optional.of(BuiltInRegistries.ITEM.getKey(Items.STONE)), false);
 		RtsOrders.Result result = RtsOrders.handle(player, payload, LEVEL_2);
 
 		assertResult(helper, result, true, 1, "replaced");

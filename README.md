@@ -65,13 +65,23 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
 - Orders: with workers selected, right-click a block to send them there (move). A command bar at
   the bottom centre of the screen (it scales with the GUI scale) has buttons for Move, Mine, Place,
-  Dig, Stop and Spawn worker; hovering a button shows its name and hotkey. The hotkeys are `M`
-  (Move), `B` (Mine), `V` (Place), `C` (Dig), `G` (Stop) and `N` (Spawn worker), all rebindable.
-  Clicks on the bar
+  Dig, Stop, Spawn worker, Deposit and Withdraw; hovering a button shows its name and hotkey. The
+  hotkeys are `M` (Move), `B` (Mine), `V` (Place), `C` (Dig), `G` (Stop), `N` (Spawn worker), `J`
+  (Deposit) and `K` (Withdraw), all rebindable. Clicks on the bar
   never select or order anything behind it.
-  - Move, Mine, Place and Spawn worker arm a mode; the next left-click on a block carries it out.
-    Place uses the block in the selected hotbar slot (the hotbar scroll/number keys still work, and
-    the HUD shows `Place: <item>`). Pressing the same button or hotkey again disarms it.
+  - Move, Mine, Place, Spawn worker, Deposit and Withdraw arm a mode; the next left-click on a block
+    carries it out. Pressing the same button or hotkey again disarms it.
+  - Items come from the selected workers' inventories, not yours. Click an item in the worker panel
+    to pick it (click it again to unpick); with several workers selected the panel shows their
+    combined items and counts. The pick is highlighted and persists across selection changes.
+    Place uses the picked block, and the HUD shows `Place: <block>`; a worker that does not carry
+    it fails the task.
+  - Deposit puts everything, or only the picked item if one is picked, into the clicked container.
+    The HUD shows `Deposit: everything` or `Deposit: <item>`.
+  - Withdraw: click a container to open a read-only view of its contents (a snapshot, not the
+    vanilla menu). Click an item, set the count with `−`/`+` (`Shift` steps by 16) and confirm;
+    `Esc` or Close closes the view. The count is per worker, so N selected workers take N × count
+    in total (the view shows `N each`).
   - Dig (`C` or the Dig button) digs out an area. Left-drag on the terrain to mark the rectangle;
     its top is the higher of the two picked blocks. Release, then scroll the wheel down to dig
     deeper or up to make it shallower (at least 1 layer); `Shift`+wheel still zooms meanwhile.
