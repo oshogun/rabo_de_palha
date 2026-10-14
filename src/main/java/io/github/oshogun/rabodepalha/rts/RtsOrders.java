@@ -9,8 +9,10 @@ import java.util.function.Supplier;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
+import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
+import io.github.oshogun.rabodepalha.network.RtsWatchPayload;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -123,6 +125,30 @@ public final class RtsOrders {
 	public static Result handleSpawn(ServerPlayer player, RtsSpawnPayload payload, PermissionSet permissions,
 			double maxTargetDistance) {
 		return sendFeedback(player, applySpawn(player, payload, permissions, maxTargetDistance));
+	}
+
+	/** Entry point for the client's watch request. */
+	public static Result handleWatch(ServerPlayer player, RtsWatchPayload payload) {
+		return handleWatch(player, payload, player.permissions());
+	}
+
+	/**
+	 * Replaces the workers the player's RTS panel watches; an empty list ends the watch. When some ids are live
+	 * workers, the others are reported as gone in the next snapshot. When none is, the watch is dropped and
+	 * rejected as unknown workers. Sends no feedback; the snapshots are the answer.
+	 */
+	public static Result handleWatch(ServerPlayer player, RtsWatchPayload payload, PermissionSet permissions) {
+		return applyWatch(player, payload, permissions);
+	}
+
+	/** Entry point for the client's remove-task order. */
+	public static Result handleRemoveTask(ServerPlayer player, RtsRemoveTaskPayload payload) {
+		return handleRemoveTask(player, payload, player.permissions());
+	}
+
+	/** Drops one queued task of a worker, by its runtime id, then sends the feedback. */
+	public static Result handleRemoveTask(ServerPlayer player, RtsRemoveTaskPayload payload, PermissionSet permissions) {
+		return sendFeedback(player, applyRemoveTask(player, payload, permissions));
 	}
 
 	private static Result sendFeedback(ServerPlayer player, Result result) {
@@ -321,6 +347,7 @@ public final class RtsOrders {
 
 		for (WorkerEntity worker : valid) {
 			worker.tasks().clear(worker, TaskOutcome.Cancelled.Cause.CLEARED);
+			RtsWatchers.markDirty(player, worker.getId());
 		}
 		Component stopped = Component.translatable("rabodepalha.rts.order.stopped", valid.size());
 		int rejected = unknown + notLoaded;
@@ -329,6 +356,54 @@ public final class RtsOrders {
 		}
 		return new Result(false, valid.size(), Component.translatable("rabodepalha.rts.order.stop_partial",
 				stopped, rejected, unknown, notLoaded));
+	}
+
+	private static Result applyWatch(ServerPlayer player, RtsWatchPayload payload, PermissionSet permissions) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.size() > RtsWatchers.MAX_WATCHED) {
+			return reject("rabodepalha.rts.order.too_many_workers");
+		}
+		// A selected worker may die before the watch arrives; watch the rest and report it as gone.
+		ServerLevel level = player.level();
+		List<Integer> live = new ArrayList<>();
+		List<Integer> gone = new ArrayList<>();
+		for (int id : new LinkedHashSet<>(ids)) {
+			if (level.getEntity(id) instanceof WorkerEntity worker && worker.isAlive()) {
+				live.add(id);
+			} else {
+				gone.add(id);
+			}
+		}
+		if (live.isEmpty() && !gone.isEmpty()) {
+			// Nothing to watch; drop the previous watch so it stops sending stale workers.
+			RtsWatchers.set(player, List.of(), List.of());
+			return new Result(false, 0, Component.translatable("rabodepalha.rts.order.unknown_worker", gone.size()));
+		}
+		RtsWatchers.set(player, live, gone);
+		return new Result(true, live.size(), Component.empty());
+	}
+
+	private static Result applyRemoveTask(ServerPlayer player, RtsRemoveTaskPayload payload, PermissionSet permissions) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		ServerLevel level = player.level();
+		if (!(level.getEntity(payload.workerId()) instanceof WorkerEntity worker) || !worker.isAlive()) {
+			return new Result(false, 0, Component.translatable("rabodepalha.rts.order.unknown_worker", 1));
+		}
+		if (!level.isLoaded(worker.blockPosition())) {
+			return new Result(false, 0, Component.translatable("rabodepalha.rts.order.worker_not_loaded", 1));
+		}
+		if (!worker.tasks().removePending(payload.taskId())) {
+			return reject("rabodepalha.rts.order.task_gone");
+		}
+		RtsWatchers.markDirty(player, worker.getId());
+		return new Result(true, 1, Component.translatable("rabodepalha.rts.order.task_removed"));
 	}
 
 	private static Result applySpawn(ServerPlayer player, RtsSpawnPayload payload, PermissionSet permissions,

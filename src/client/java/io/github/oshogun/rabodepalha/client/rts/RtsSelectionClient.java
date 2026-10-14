@@ -93,6 +93,11 @@ public final class RtsSelectionClient {
 		return SELECTION.isEmpty();
 	}
 
+	/** Narrows the selection to worker {@code id}, as when a row of the RTS panel is clicked. */
+	public static void selectOnly(int id) {
+		SELECTION.replace(id);
+	}
+
 	/** Clears the selection and drops any drag in progress. */
 	public static void clear() {
 		SELECTION.clear();

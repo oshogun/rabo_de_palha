@@ -100,6 +100,13 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   block in hand, no room to spawn, more than 128 blocks away), and hidden while the cursor is over
   the command bar. Clicking an invalid target shows the same reason.
   The overlay uses `client/render/WorldOverlay`, which other features can reuse.
+- Worker panel: a side panel at the top right of the HUD (up to 160 px wide, above the command
+  bar). With one worker selected it shows its name, chunk status, current task, queued tasks in
+  order (each with a Remove button), inventory and a Clear button (same as Stop). With several
+  selected it lists each worker's current task; clicking a row narrows the selection to that
+  worker. The client tells the server which selected workers it watches (at most 16), and the
+  server sends snapshots (at most 16 queued tasks and the inventory) only while the player is in
+  RTS mode. Clicks on the panel are consumed, and right-click or scroll over it do nothing.
 - Logging out, dying, respawning or a server restart while in RTS mode returns the player to
   normal mode at the entry position. Using `/gamemode` also ends RTS mode.
 

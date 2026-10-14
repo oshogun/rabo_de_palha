@@ -17,12 +17,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsCommandClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsOrdersClient;
+import io.github.oshogun.rabodepalha.client.rts.RtsPanelClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsSelectionClient;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
 
 /**
  * Mouse handling in RTS mode, while no screen is open: clicks neither grab the cursor nor attack or use,
- * the left button uses the command bar, fires the armed command or selects workers (click or box drag), the right
+ * the left button uses the side panel or the command bar, fires the armed command or selects workers (click or box drag), the right
  * button disarms the armed command or orders a move, the wheel sets a dig area's depth or else zooms instead of
  * changing the spectator fly speed, and dragging with the middle button rotates (horizontally) and tilts (vertically)
  * the camera. The drag uses cursor-position deltas rather than vanilla's accumulated movement.
@@ -75,8 +76,10 @@ abstract class MouseHandlerMixin {
 			this.rabodepalha$dragLastY = this.ypos;
 		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_LEFT) {
 			if (action == 1) {
-				if (RtsCommandClient.onLeftPress(this.xpos, this.ypos, rawButtonInfo.hasShiftDown())) {
-					// The bar or the armed mode took the press: its release must not finish a selection.
+				// The panel comes first: a press on it neither fires the armed command nor selects.
+				if (RtsPanelClient.onLeftPress(this.xpos, this.ypos)
+						|| RtsCommandClient.onLeftPress(this.xpos, this.ypos, rawButtonInfo.hasShiftDown())) {
+					// The panel, the bar or the armed mode took the press: its release must not finish a selection.
 					this.rabodepalha$swallowLeftRelease = true;
 				} else {
 					RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
@@ -91,8 +94,10 @@ abstract class MouseHandlerMixin {
 				}
 			}
 		} else if (rawButtonInfo.button() == InputConstants.MOUSE_BUTTON_RIGHT && action == 1) {
-			// Right-clicks on the bar do nothing; elsewhere they disarm the armed command, or order a plain move.
-			if (!RtsCommandClient.overBar(this.xpos, this.ypos) && !RtsCommandClient.onRightClick()) {
+			// Right-clicks on the bar or the panel do nothing; elsewhere they disarm the armed command, or order a
+			// plain move.
+			if (!RtsCommandClient.overBar(this.xpos, this.ypos) && !RtsPanelClient.over(this.xpos, this.ypos)
+					&& !RtsCommandClient.onRightClick()) {
 				RtsOrdersClient.onRightClick(this.xpos, this.ypos, rawButtonInfo.hasShiftDown());
 			}
 		}
@@ -102,6 +107,11 @@ abstract class MouseHandlerMixin {
 	@Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
 	private void rabodepalha$rtsZoom(long handle, double xoffset, double yoffset, CallbackInfo ci) {
 		if (!this.rabodepalha$rtsWorldInput(handle) || this.minecraft.player == null) {
+			return;
+		}
+		if (RtsPanelClient.over(this.xpos, this.ypos)) {
+			// The wheel over the panel neither zooms nor sets a dig area's depth.
+			ci.cancel();
 			return;
 		}
 		boolean shift = InputConstants.isKeyDown(InputConstants.KEY_LSHIFT)

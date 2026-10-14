@@ -1,5 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.List;
+
 import org.jspecify.annotations.Nullable;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -14,6 +16,7 @@ import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
+import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
@@ -61,12 +64,24 @@ public final class RtsOrdersClient {
 
 	/** Clears the selected workers' queues and current tasks, like {@code /rdp clear}. */
 	public static void sendStop() {
-		if (RtsSelectionClient.count() <= 0) {
+		sendStop(RtsSelectionClient.selectedIds());
+	}
+
+	/** Clears the queues and current tasks of {@code workerIds}; the panel's Clear button. */
+	public static void sendStop(List<Integer> workerIds) {
+		if (workerIds.isEmpty()) {
 			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
 			return;
 		}
 		if (ClientPlayNetworking.canSend(RtsStopPayload.TYPE)) {
-			ClientPlayNetworking.send(new RtsStopPayload(RtsSelectionClient.selectedIds()));
+			ClientPlayNetworking.send(new RtsStopPayload(workerIds));
+		}
+	}
+
+	/** Removes queued task {@code taskId} from worker {@code workerId}; the panel's Remove button. */
+	public static void sendRemoveTask(int workerId, long taskId) {
+		if (ClientPlayNetworking.canSend(RtsRemoveTaskPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsRemoveTaskPayload(workerId, taskId));
 		}
 	}
 

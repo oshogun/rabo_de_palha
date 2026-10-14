@@ -107,11 +107,16 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		return Collections.unmodifiableSet(commanders);
 	}
 
+	/** Display name plus entity id, e.g. "Worker 5"; translated on the client. */
+	public Component label() {
+		return Component.translatable("rabodepalha.worker.name", getName(), Component.literal(String.valueOf(getId())));
+	}
+
 	private void notifyCommanders(String message) {
 		if (commanders.isEmpty() || !(level() instanceof ServerLevel serverLevel)) {
 			return;
 		}
-		Component text = Component.literal("[" + getName().getString() + " " + getId() + "] " + message);
+		Component text = Component.literal("[").append(label()).append("] ").append(Component.literal(message));
 		for (UUID uuid : commanders) {
 			ServerPlayer player = serverLevel.getServer().getPlayerList().getPlayer(uuid);
 			if (player != null) {

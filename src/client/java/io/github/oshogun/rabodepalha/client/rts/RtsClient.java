@@ -20,6 +20,7 @@ import net.minecraft.world.phys.Vec3;
 
 import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
+import io.github.oshogun.rabodepalha.network.RtsSnapshotPayload;
 import io.github.oshogun.rabodepalha.network.RtsStatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTogglePayload;
 import io.github.oshogun.rabodepalha.rts.RtsCameraMath;
@@ -88,6 +89,8 @@ public final class RtsClient {
 				(payload, context) -> setActive(context.client(), payload.active()));
 		ClientPlayNetworking.registerGlobalReceiver(RtsOrderFeedbackPayload.TYPE,
 				(payload, context) -> RtsHud.showFeedback(payload.ok(), payload.message()));
+		ClientPlayNetworking.registerGlobalReceiver(RtsSnapshotPayload.TYPE,
+				(payload, context) -> RtsSnapshotsClient.accept(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(RtsClient::tick);
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> reset());
 	}
@@ -131,6 +134,9 @@ public final class RtsClient {
 		active = value;
 		RtsSelectionClient.clear();
 		RtsCommandClient.clear();
+		if (!value) {
+			RtsSnapshotsClient.clear();
+		}
 		if (value) {
 			height = RtsCameraMath.DEFAULT_HEIGHT;
 			resetHeight();
@@ -146,6 +152,7 @@ public final class RtsClient {
 		active = false;
 		RtsSelectionClient.clear();
 		RtsCommandClient.clear();
+		RtsSnapshotsClient.clear();
 		height = RtsCameraMath.DEFAULT_HEIGHT;
 		pitch = RtsCameraMath.DEFAULT_PITCH;
 		resetHeight();
@@ -167,6 +174,7 @@ public final class RtsClient {
 			}
 		}
 		RtsSelectionClient.tick(client);
+		RtsSnapshotsClient.syncWatch();
 
 		LocalPlayer player = client.player;
 		if (!active || player == null || client.level == null) {

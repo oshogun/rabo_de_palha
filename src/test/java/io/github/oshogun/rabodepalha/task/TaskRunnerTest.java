@@ -252,6 +252,62 @@ class TaskRunnerTest {
 		assertFalse(a.cancelledFlags.contains(true));
 	}
 
+	@Test
+	void removePendingRemovesOnlyThatTask() {
+		FakeTask a = new FakeTask("a", 100);
+		FakeTask b = new FakeTask("b", 1);
+		FakeTask c = new FakeTask("c", 1);
+		FakeTask d = new FakeTask("d", 1);
+		runner.enqueue(a);
+		runner.enqueue(b);
+		runner.enqueue(c);
+		runner.enqueue(d);
+		tick(1);
+
+		List<TaskRunner.Pending<Object>> entries = runner.pendingEntries();
+		assertEquals(List.of(b, c, d), entries.stream().map(TaskRunner.Pending::task).toList());
+		assertTrue(runner.removePending(entries.get(1).id()));
+
+		assertEquals(List.of(b, d), runner.pending());
+		assertEquals(a, runner.current().orElseThrow());
+		assertEquals(0, c.starts);
+		assertEquals(0, c.stops);
+		assertTrue(outcomes.isEmpty());
+		assertFalse(runner.removePending(entries.get(1).id()));
+	}
+
+	@Test
+	void removePendingRejectsUnknownAndCurrentIds() {
+		FakeTask a = new FakeTask("a", 100);
+		runner.enqueue(a);
+		long currentId = runner.pendingEntries().get(0).id();
+		runner.enqueue(new FakeTask("b", 1));
+		tick(1);
+
+		assertFalse(runner.removePending(currentId));
+		assertFalse(runner.removePending(Long.MAX_VALUE));
+		assertEquals(a, runner.current().orElseThrow());
+		assertEquals(1, runner.pending().size());
+		assertEquals(0, a.stops);
+		assertTrue(outcomes.isEmpty());
+	}
+
+	@Test
+	void pendingIdsStayUnique() {
+		runner.enqueue(new FakeTask("a", 1));
+		runner.enqueue(new FakeTask("b", 1));
+		List<Long> before = runner.pendingEntries().stream().map(TaskRunner.Pending::id).toList();
+
+		runner.restore(List.of(new FakeTask("c", 1), new FakeTask("d", 1)));
+		runner.enqueue(new FakeTask("e", 1));
+		List<Long> after = runner.pendingEntries().stream().map(TaskRunner.Pending::id).toList();
+
+		List<Long> all = new ArrayList<>(before);
+		all.addAll(after);
+		assertEquals(5, all.size());
+		assertEquals(5, all.stream().distinct().count());
+	}
+
 	private void tick(int times) {
 		for (int i = 0; i < times; i++) {
 			runner.tick(CTX);

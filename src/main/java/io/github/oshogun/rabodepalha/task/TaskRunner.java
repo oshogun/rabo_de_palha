@@ -21,22 +21,32 @@ import org.slf4j.LoggerFactory;
 public class TaskRunner<C> {
 	private static final Logger LOGGER = LoggerFactory.getLogger(TaskRunner.class);
 
-	private final ArrayDeque<Task<C>> queue = new ArrayDeque<>();
+	private final ArrayDeque<Pending<C>> queue = new ArrayDeque<>();
 	private final List<TaskListener<C>> listeners = new CopyOnWriteArrayList<>();
 	private Task<C> current;
 	private boolean started;
+	/** Runtime-only ids for queued tasks; not saved, so ids change after a reload. */
+	private long nextId;
+
+	/** A queued task with its runtime id, used to remove one specific task. */
+	public record Pending<C>(long id, Task<C> task) {
+		public Pending {
+			Objects.requireNonNull(task, "task");
+		}
+	}
 
 	public void enqueue(Task<C> task) {
-		queue.addLast(Objects.requireNonNull(task, "task"));
+		queue.addLast(new Pending<>(nextId++, Objects.requireNonNull(task, "task")));
 	}
 
 	public void tick(C ctx) {
 		if (current == null) {
-			current = queue.pollFirst();
+			Pending<C> next = queue.pollFirst();
 			started = false;
-			if (current == null) {
+			if (next == null) {
 				return;
 			}
+			current = next.task();
 		}
 
 		Task<C> task = current;
@@ -92,7 +102,20 @@ public class TaskRunner<C> {
 
 	/** Queued tasks after the current one. */
 	public List<Task<C>> pending() {
+		return queue.stream().map(Pending::task).toList();
+	}
+
+	/** Queued tasks after the current one, with their runtime ids. */
+	public List<Pending<C>> pendingEntries() {
 		return List.copyOf(queue);
+	}
+
+	/**
+	 * Drops the queued task with {@code id}. The task never started, so it is neither stopped nor
+	 * reported to listeners. Returns false if no queued task has that id (including the current one).
+	 */
+	public boolean removePending(long id) {
+		return queue.removeIf(entry -> entry.id() == id);
 	}
 
 	public boolean isIdle() {
@@ -105,7 +128,7 @@ public class TaskRunner<C> {
 		if (current != null) {
 			all.add(current);
 		}
-		all.addAll(queue);
+		queue.forEach(entry -> all.add(entry.task()));
 		return List.copyOf(all);
 	}
 
