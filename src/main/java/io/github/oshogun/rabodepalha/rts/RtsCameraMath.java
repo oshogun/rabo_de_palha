@@ -214,6 +214,11 @@ public final class RtsCameraMath {
 	 * from the terrain smoothing so wheel zoom feels immediate both ways.
 	 */
 	public static final double ZOOM_SMOOTH_TIME = 0.09;
+	/**
+	 * Smoothing time, in seconds, of the level part of the camera height, in both directions. A deliberate
+	 * view level change is user input, like zoom, so it skips the dead zone and the slow terrain fall.
+	 */
+	public static final double LEVEL_SMOOTH_TIME = 0.1;
 	/** Longest time step, in seconds, the height filter integrates at once (guards against lag spikes). */
 	public static final double MAX_STEP_DT = 0.25;
 
@@ -222,15 +227,16 @@ public final class RtsCameraMath {
 	}
 
 	/**
-	 * Smoothed camera height state. {@code y} is the applied camera height: {@code base + zoom}, kept above
-	 * the clearance. {@code base} is the smoothed ground part, damped towards {@code ground}, the ground
-	 * reference the camera currently follows. {@code zoom} is the smoothed zoom part. NaN fields mean the
-	 * filter has not been seeded yet.
+	 * Smoothed camera height state. {@code y} is the applied camera height: {@code base + level + zoom}, kept
+	 * above the clearance. {@code base} is the smoothed ground part, damped towards {@code ground}, the ground
+	 * reference the camera currently follows. {@code level} is the eased remainder of a deliberate ground
+	 * rebase ({@link #rebaseGround}) and decays to 0. {@code zoom} is the smoothed zoom part. NaN fields mean
+	 * the filter has not been seeded yet.
 	 */
 	public record HeightState(double y, double base, double baseVelocity, double ground, double zoom,
-			double zoomVelocity) {
+			double zoomVelocity, double level, double levelVelocity) {
 		public static final HeightState UNSET = new HeightState(Double.NaN, Double.NaN, 0.0, Double.NaN, Double.NaN,
-				0.0);
+				0.0, 0.0, 0.0);
 
 		public boolean isSet() {
 			return !Double.isNaN(y);
@@ -371,7 +377,7 @@ public final class RtsCameraMath {
 			if (Double.isNaN(reference)) {
 				return HeightState.UNSET;
 			}
-			return withClearance(reference, 0.0, reference, zoomHeight, 0.0, highest);
+			return withClearance(reference, 0.0, reference, zoomHeight, 0.0, 0.0, 0.0, highest);
 		}
 		double ground = prev.ground();
 		if (!locked && !Double.isNaN(reference) && Math.abs(reference - ground) > HEIGHT_DEAD_ZONE) {
@@ -380,20 +386,39 @@ public final class RtsCameraMath {
 		double smoothTime = ground > prev.base() ? RISE_SMOOTH_TIME : FALL_SMOOTH_TIME;
 		Damped base = smoothDamp(prev.base(), prev.baseVelocity(), ground, smoothTime, step);
 		Damped zoom = smoothDamp(prev.zoom(), prev.zoomVelocity(), zoomHeight, ZOOM_SMOOTH_TIME, step);
-		return withClearance(base.value(), base.velocity(), ground, zoom.value(), zoom.velocity(), highest);
+		Damped lvl = smoothDamp(prev.level(), prev.levelVelocity(), 0.0, LEVEL_SMOOTH_TIME, step);
+		return withClearance(base.value(), base.velocity(), ground, zoom.value(), zoom.velocity(), lvl.value(),
+				lvl.velocity(), highest);
 	}
 
 	/**
-	 * Keeps {@code base + zoom} above the clearance. The push goes to the ground part, so leaving a tall
-	 * block eases down with the slow terrain fall rather than snapping.
+	 * Moves the ground the camera follows to {@code reference} after a deliberate view level change. The
+	 * ground part jumps by the change and the level part takes the opposite change, so {@code y} does not
+	 * jump; the level part then eases to 0 with {@link #LEVEL_SMOOTH_TIME}, with no dead zone and no slow
+	 * fall. Returns {@code prev} when it is unset or the reference is NaN.
+	 */
+	public static HeightState rebaseGround(HeightState prev, double reference) {
+		if (!prev.isSet() || Double.isNaN(reference)) {
+			return prev;
+		}
+		double d = reference - prev.ground();
+		return new HeightState(prev.y(), prev.base() + d, prev.baseVelocity(), reference, prev.zoom(),
+				prev.zoomVelocity(), prev.level() - d, prev.levelVelocity());
+	}
+
+	/**
+	 * Keeps {@code base + level + zoom} above the clearance. The push goes to the ground part, so leaving a
+	 * tall block eases down with the slow terrain fall rather than snapping.
 	 */
 	private static HeightState withClearance(double base, double baseVelocity, double ground, double zoom,
-			double zoomVelocity, double highest) {
-		if (!Double.isNaN(highest) && base + zoom < highest + MIN_CLEARANCE) {
+			double zoomVelocity, double level, double levelVelocity, double highest) {
+		if (!Double.isNaN(highest) && base + level + zoom < highest + MIN_CLEARANCE) {
 			double floor = highest + MIN_CLEARANCE;
-			return new HeightState(floor, floor - zoom, Math.max(baseVelocity, 0.0), ground, zoom, zoomVelocity);
+			return new HeightState(floor, floor - zoom - level, Math.max(baseVelocity, 0.0), ground, zoom,
+					zoomVelocity, level, levelVelocity);
 		}
-		return new HeightState(base + zoom, base, baseVelocity, ground, zoom, zoomVelocity);
+		return new HeightState(base + level + zoom, base, baseVelocity, ground, zoom, zoomVelocity, level,
+				levelVelocity);
 	}
 
 	private static double clamp(double value, double min, double max) {

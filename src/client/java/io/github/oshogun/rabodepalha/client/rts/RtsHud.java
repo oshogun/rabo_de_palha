@@ -43,11 +43,12 @@ import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsPanel;
 import io.github.oshogun.rabodepalha.rts.RtsPickMath;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
+import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
 import io.github.oshogun.rabodepalha.rts.WorkerSnapshot;
 import io.github.oshogun.rabodepalha.worker.task.TaskSummary;
 
 /**
- * RTS mode HUD: the number of selected workers, the outcome of the last order, the block a place order
+ * RTS mode HUD: the camera mode and view level, the number of selected workers, the outcome of the last order, the block a place order
  * would use and what a deposit would put away, what the armed command or a right-click would do at the cursor,
  * the selection box while dragging, the side panel with the watched workers, the withdraw view, the blueprint
  * picker and materials panel of the build command, and the command bar with its tooltips.
@@ -113,6 +114,8 @@ public final class RtsHud {
 				: RtsPanel.leftTextMaxWidth(client.getWindow().getGuiScaledWidth());
 		int lineHeight = client.font.lineHeight + 2;
 		int y = MARGIN;
+		leftText(graphics, client, viewLevelLine(), y, LABEL_COLOR);
+		y += lineHeight;
 		int count = RtsSelectionClient.count();
 		if (count > 0) {
 			leftText(graphics, client, Component.translatable("rabodepalha.rts.selected", count), y, TEXT_COLOR);
@@ -193,6 +196,23 @@ public final class RtsHud {
 			extractPicker(graphics, client, picker, pickerHit);
 		}
 		extractCommandBar(graphics, client, hovered);
+	}
+
+	/**
+	 * The camera mode line: "Surface view", or the view level and, when the screen centre's column is known and
+	 * the level lies under its surface, how far below it.
+	 */
+	private static Component viewLevelLine() {
+		if (RtsClient.viewMode() != RtsViewLevel.Mode.LEVEL) {
+			return Component.translatable("rabodepalha.rts.level.surface");
+		}
+		Component line = Component.translatable("rabodepalha.rts.level.level", RtsClient.viewLevel());
+		double depth = RtsClient.centreDepth();
+		if (Double.isFinite(depth) && depth > 0) {
+			line = Component.empty().append(line).append(" - ")
+					.append(Component.translatable("rabodepalha.rts.level.depth", (int) depth));
+		}
+		return line;
 	}
 
 	/** What the mouse cursor is on in the blueprint picker. */

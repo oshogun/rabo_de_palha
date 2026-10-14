@@ -438,6 +438,105 @@ class RtsCameraMathTest {
 		assertPivotFixed(24.0, 70.0f, 35.0f, 60.0, 70.0f, 35.0f);
 	}
 
+	/** Seeds the filter at {@code ground} and lets it settle there. */
+	private static RtsCameraMath.HeightState settled(double ground) {
+		return run(seeded(ground), ground, ground, 40);
+	}
+
+	@Test
+	void levelStepDownOfOneMovesCamera() {
+		RtsCameraMath.HeightState start = settled(64.0);
+
+		RtsCameraMath.HeightState rebased = RtsCameraMath.rebaseGround(start, 63.0);
+		assertEquals(start.y(), rebased.y(), EPS);
+		assertEquals(63.0, rebased.ground(), EPS);
+
+		RtsCameraMath.HeightState state = run(rebased, 63.0, 63.0, 10);
+		assertEquals(63.0 + ZOOM, state.y(), 0.05);
+		assertEquals(0.0, state.level(), 0.05);
+	}
+
+	@Test
+	void levelStepDownOfTenIsQuick() {
+		RtsCameraMath.HeightState state = RtsCameraMath.rebaseGround(settled(64.0), 54.0);
+
+		state = run(state, 54.0, 54.0, 6);
+
+		assertEquals(54.0 + ZOOM, state.y(), 1.0);
+	}
+
+	@Test
+	void levelStepUpOfTenIsQuick() {
+		RtsCameraMath.HeightState state = RtsCameraMath.rebaseGround(settled(64.0), 74.0);
+
+		state = run(state, 74.0, 74.0, 6);
+
+		assertEquals(74.0 + ZOOM, state.y(), 1.0);
+	}
+
+	@Test
+	void terrainBumpAtFixedLevelKeepsDeadZone() {
+		RtsCameraMath.HeightState start = settled(64.0);
+
+		RtsCameraMath.HeightState state = run(start, 65.0, 64.0, 40);
+
+		assertEquals(start.ground(), state.ground(), EPS);
+		assertEquals(start.y(), state.y(), EPS);
+		assertEquals(0.0, state.level(), EPS);
+	}
+
+	@Test
+	void levelChangeKeepsClearance() {
+		RtsCameraMath.HeightState state = RtsCameraMath.rebaseGround(settled(64.0), 40.0);
+		for (int i = 0; i < 40; i++) {
+			state = RtsCameraMath.filterHeight(state, 40.0, 64.0, ZOOM, TICK, false);
+			assertTrue(state.y() >= 64.0 + RtsCameraMath.MIN_CLEARANCE, "y " + state.y() + " below clearance");
+		}
+	}
+
+	@Test
+	void rebaseIgnoresNaNAndUnset() {
+		RtsCameraMath.HeightState start = settled(64.0);
+
+		assertEquals(start, RtsCameraMath.rebaseGround(start, Double.NaN));
+		assertEquals(RtsCameraMath.HeightState.UNSET, RtsCameraMath.rebaseGround(RtsCameraMath.HeightState.UNSET, 50.0));
+	}
+
+	@Test
+	void heldLevelKeyDescendsSmoothly() {
+		RtsCameraMath.HeightState state = settled(64.0);
+		double ground = 64.0;
+		double lastY = state.y();
+		for (int step = 0; step < 20; step++) {
+			ground -= 1.0;
+			state = RtsCameraMath.rebaseGround(state, ground);
+			for (int i = 0; i < 2; i++) {
+				state = RtsCameraMath.filterHeight(state, ground, ground, ZOOM, TICK, false);
+				assertTrue(state.y() <= lastY + EPS, "camera rose while descending");
+				lastY = state.y();
+			}
+		}
+		state = run(state, ground, ground, 10);
+
+		assertEquals(ground + ZOOM, state.y(), 0.05);
+	}
+
+	@Test
+	void levelChangeThroughColumnTopConverges() {
+		// Floor tops at 31 and 11, with air between them.
+		RtsViewLevel.SolidTest column = y -> y == 30 || y <= 10;
+		double upper = RtsViewLevel.columnTop(40, -64, RtsViewLevel.SCAN_LIMIT, column);
+		double lower = RtsViewLevel.columnTop(25, -64, RtsViewLevel.SCAN_LIMIT, column);
+		assertEquals(31.0, upper, EPS);
+		assertEquals(11.0, lower, EPS);
+
+		RtsCameraMath.HeightState state = RtsCameraMath.rebaseGround(settled(upper), lower);
+		state = run(state, lower, lower, 20);
+
+		assertEquals(lower + ZOOM, state.y(), 0.05);
+		assertEquals(lower, state.ground(), EPS);
+	}
+
 	private static void assertPivotFixed(double h0, float y0, float p0, double h1, float y1, float p1) {
 		double x = 12.0;
 		double z = -3.0;

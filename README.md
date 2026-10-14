@@ -63,6 +63,14 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
   capped, and the server skips its "moved too quickly" check for players in RTS mode only.
 - Zoom (camera height) with the mouse wheel (`Shift`+wheel while setting a dig depth); rotate with `Q`/`E` or middle-drag. `E` does not
   open the inventory while in RTS mode. The cursor stays free, and the spectator hotbar is hidden.
+- View level (underground and indoors): the camera is in *Surface* mode (follows the terrain) or
+  *Level* mode, where a view level Y acts as the top of the world: the camera follows the highest
+  solid block at or below it, and clicks and worker picks ignore everything above it. `Page Up` /
+  `Page Down` step the level one block (hold to repeat), `End` switches Surface/Level, `Home` jumps
+  the level to the selected worker's feet. Entering RTS mode below the surface starts in Level mode
+  at the player's level. The HUD's first line shows the mode, the level and the depth below the
+  surface at the screen centre. Blocks above the level are not hidden yet, so the camera may sit
+  inside terrain. All four keys are rebindable.
 - Orders: with workers selected, right-click a block to send them there (move). A command bar at
   the bottom centre of the screen (it scales with the GUI scale) has buttons for Move, Mine, Place,
   Dig, Build, Stop, Spawn worker, Deposit and Withdraw; hovering a button shows its name and hotkey. The

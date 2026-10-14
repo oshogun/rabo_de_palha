@@ -9,8 +9,11 @@ import com.mojang.blaze3d.platform.Window;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -19,9 +22,11 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 
 import org.jspecify.annotations.Nullable;
 
+import io.github.oshogun.rabodepalha.rts.RtsLevelClip;
 import io.github.oshogun.rabodepalha.rts.RtsPickMath;
 import io.github.oshogun.rabodepalha.rts.RtsScreenRect;
 import io.github.oshogun.rabodepalha.rts.RtsSelection;
+import io.github.oshogun.rabodepalha.rts.RtsViewLevel;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
 /**
@@ -224,7 +229,22 @@ public final class RtsSelectionClient {
 		return new Ray(start, start.add(dir[0] * PICK_RANGE, dir[1] * PICK_RANGE, dir[2] * PICK_RANGE));
 	}
 
+	/**
+	 * The first block the ray hits. In level mode blocks above the view level are skipped, and the walk
+	 * starts in the camera's own block, so a camera inside terrain still reaches a cave or room floor.
+	 */
 	private static @Nullable BlockHitResult clipBlock(ClientLevel level, Ray ray) {
+		int pickLevel = RtsClient.pickLevel();
+		if (pickLevel != Integer.MAX_VALUE) {
+			Vec3 start = ray.start();
+			Vec3 end = ray.end();
+			BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+			return RtsLevelClip.traverse(start.x, start.y, start.z, end.x, end.y, end.z, pickLevel, (x, y, z) -> {
+				cursor.set(x, y, z);
+				BlockState state = level.getBlockState(cursor);
+				return state.getCollisionShape(level, cursor, CollisionContext.empty()).clip(start, end, cursor.immutable());
+			});
+		}
 		BlockHitResult hit = level.clip(new ClipContext(ray.start(), ray.end(), ClipContext.Block.COLLIDER,
 				ClipContext.Fluid.NONE, CollisionContext.empty()));
 		return hit.getType() == HitResult.Type.MISS ? null : hit;
@@ -244,10 +264,14 @@ public final class RtsSelectionClient {
 				? PICK_RANGE * PICK_RANGE
 				: blockHit.getLocation().distanceToSqr(start);
 
+		int pickLevel = RtsClient.pickLevel();
 		WorkerEntity best = null;
 		double bestDistSqr = maxDistSqr;
 		for (WorkerEntity worker : level.getEntitiesOfClass(WorkerEntity.class, new AABB(start, end).inflate(1.0),
 				Entity::isAlive)) {
+			if (aboveLevel(worker, pickLevel)) {
+				continue;
+			}
 			Optional<Vec3> hit = worker.getBoundingBox().inflate(PICK_INFLATE).clip(start, end);
 			if (hit.isPresent()) {
 				double distSqr = hit.get().distanceToSqr(start);
@@ -265,9 +289,13 @@ public final class RtsSelectionClient {
 		Camera camera = client.gameRenderer.mainCamera();
 		Window window = client.getWindow();
 		Vec3 eye = camera.position();
+		int pickLevel = RtsClient.pickLevel();
 		List<Integer> hits = new ArrayList<>();
 		for (WorkerEntity worker : client.level.getEntitiesOfClass(WorkerEntity.class,
 				AABB.ofSize(eye, PICK_RANGE * 2, PICK_RANGE * 2, PICK_RANGE * 2), Entity::isAlive)) {
+			if (aboveLevel(worker, pickLevel)) {
+				continue;
+			}
 			Vec3 centre = worker.getBoundingBox().getCenter().subtract(eye);
 			RtsPickMath.Projected p = RtsPickMath.project(centre.x, centre.y, centre.z, window.getScreenWidth(),
 					window.getScreenHeight(), camera.getFov(), camera.yRot(), camera.xRot());
@@ -276,5 +304,10 @@ public final class RtsSelectionClient {
 			}
 		}
 		return hits;
+	}
+
+	/** Whether the worker's feet are above {@code pickLevel}, so level mode cannot pick it. */
+	private static boolean aboveLevel(WorkerEntity worker, int pickLevel) {
+		return RtsViewLevel.feetAboveLevel(Mth.floor(worker.getY()), pickLevel);
 	}
 }
