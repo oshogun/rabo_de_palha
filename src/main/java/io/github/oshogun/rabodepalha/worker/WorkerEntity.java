@@ -67,22 +67,27 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		tasks.addListener((task, outcome) -> {
 			if (outcome instanceof TaskOutcome.Failed) {
 				RaboDePalha.LOGGER.warn("Worker {} task {} -> {}", getStringUUID(), task.describe(), outcome);
+			} else if (!notifiesCommanders(outcome)) {
+				// The commander cancelled it themselves; routine, so keep it out of the INFO log.
+				RaboDePalha.LOGGER.debug("Worker {} task {} -> {}", getStringUUID(), task.describe(), outcome);
 			} else {
 				RaboDePalha.LOGGER.info("Worker {} task {} -> {}", getStringUUID(), task.describe(), outcome);
 			}
 		});
-		tasks.addListener((task, outcome) -> notifyCommanders(task.describe() + " -> " + describeOutcome(outcome)));
+		tasks.addListener((task, outcome) -> {
+			if (notifiesCommanders(outcome)) {
+				notifyCommanders(task.describe() + " -> " + describeOutcome(outcome));
+			}
+		});
 	}
 
 	public static String describeOutcome(TaskOutcome outcome) {
-		return switch (outcome) {
-			case TaskOutcome.Succeeded s -> s.note().isEmpty() ? "done" : "done (" + s.note() + ")";
-			case TaskOutcome.Failed f -> f.detail().isEmpty()
-					? "failed: " + f.reason()
-					: "failed: " + f.reason() + " (" + f.detail() + ")";
-			case TaskOutcome.Cancelled c -> "cancelled";
-			case TaskOutcome.Running r -> "running";
-		};
+		return OutcomeMessages.describe(outcome);
+	}
+
+	/** See {@link OutcomeMessages#notifiesCommanders}. */
+	public static boolean notifiesCommanders(TaskOutcome outcome) {
+		return OutcomeMessages.notifiesCommanders(outcome);
 	}
 
 	/** Remembers {@code player} so it is told about this worker's terminal task outcomes. */
@@ -208,7 +213,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	public void remove(RemovalReason reason) {
 		if (!level().isClientSide() && reason.shouldDestroy()) {
 			// Lets the current task clean up (e.g. clear the crack overlay).
-			tasks.clear(this);
+			tasks.clear(this, TaskOutcome.Cancelled.Cause.REMOVED);
 		}
 		super.remove(reason);
 	}

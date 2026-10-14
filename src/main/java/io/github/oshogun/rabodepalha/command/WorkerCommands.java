@@ -3,6 +3,7 @@ package io.github.oshogun.rabodepalha.command;
 import io.github.oshogun.rabodepalha.mixin.BlockInputAccessor;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
+import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
@@ -350,7 +351,7 @@ public final class WorkerCommands {
 
 	private static int clear(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) {
 		rememberCommander(ctx.getSource(), workers);
-		workers.forEach(w -> w.tasks().clear(w));
+		workers.forEach(w -> w.tasks().clear(w, TaskOutcome.Cancelled.Cause.CLEARED));
 		ctx.getSource().sendSuccess(() -> Component.literal("Cleared tasks of " + workers.size() + " worker(s)"), false);
 		return workers.size();
 	}

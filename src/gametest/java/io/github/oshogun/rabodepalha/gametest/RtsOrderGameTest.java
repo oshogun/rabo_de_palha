@@ -6,6 +6,8 @@ import io.github.oshogun.rabodepalha.rts.RtsMode;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
 import io.github.oshogun.rabodepalha.task.Task;
+import io.github.oshogun.rabodepalha.task.TaskOutcome;
+import io.github.oshogun.rabodepalha.task.TaskOutcome.Cancelled.Cause;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
@@ -319,5 +321,71 @@ public class RtsOrderGameTest {
 
 		helper.assertTrue(worker.commanders().contains(player.getUUID()), "player not recorded as commander: " + worker.commanders());
 		finish(helper, player);
+	}
+
+	/** Chat lines about cancelled tasks among {@code lines}. */
+	private static List<String> cancelledLines(List<String> lines) {
+		return lines.stream().filter(line -> line.contains("cancelled")).toList();
+	}
+
+	@GameTest(maxTicks = 200)
+	public void replaceOrderSupersedesRunningTaskQuietly(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		List<TaskOutcome> outcomes = new ArrayList<>();
+		worker.tasks().addListener((task, outcome) -> outcomes.add(outcome));
+		RtsModeGameTest.JoinedPlayer joined = RtsModeGameTest.joinPlayerWithChannel(helper);
+		ServerPlayer player = joined.player();
+		helper.assertTrue(RtsMode.enter(player), "enter refused");
+		// Already a commander, so a "cancelled" report would reach this player.
+		worker.addCommander(player.getUUID());
+		MoveToTask old = new MoveToTask(helper.absolutePos(new BlockPos(6, 1, 0)));
+		worker.tasks().enqueue(old);
+		BlockPos ordered = helper.absolutePos(CLICKED.above());
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().orElse(null) == old && outcomes.isEmpty(),
+						"old move not running yet: " + worker.tasks().current() + ", " + outcomes))
+				.thenExecute(() -> {
+					joined.drainSystemChat();
+					RtsOrders.Result result = RtsOrders.handle(player, order(helper, RtsOrderKind.MOVE, CLICKED, false, worker), LEVEL_2);
+					assertResult(helper, result, true, 1, "replaced");
+					helper.assertTrue(outcomes.equals(List.of(TaskOutcome.cancelled(Cause.SUPERSEDED))),
+							"expected one Cancelled(SUPERSEDED), got " + outcomes);
+					helper.assertFalse(WorkerEntity.notifiesCommanders(outcomes.get(0)), "superseded task would be reported");
+					assertOnlyMove(helper, worker, ordered);
+					List<String> cancelled = cancelledLines(joined.drainSystemChat());
+					helper.assertTrue(cancelled.isEmpty(), "commander was told about the replace: " + cancelled);
+				})
+				.thenExecute(() -> RtsModeGameTest.leave(player))
+				.thenSucceed();
+	}
+
+	@GameTest(maxTicks = 200)
+	public void removedWorkerReportsCancelledToCommander(GameTestHelper helper) {
+		layFloor(helper);
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		List<TaskOutcome> outcomes = new ArrayList<>();
+		worker.tasks().addListener((task, outcome) -> outcomes.add(outcome));
+		RtsModeGameTest.JoinedPlayer joined = RtsModeGameTest.joinPlayerWithChannel(helper);
+		ServerPlayer player = joined.player();
+		helper.assertTrue(RtsMode.enter(player), "enter refused");
+		assertResult(helper, RtsOrders.handle(player, order(helper, RtsOrderKind.MOVE, CLICKED, false, worker), LEVEL_2),
+				true, 1, "replaced");
+
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent() && outcomes.isEmpty(),
+						"move not running yet: " + worker.tasks().current() + ", " + outcomes))
+				.thenExecute(() -> {
+					joined.drainSystemChat();
+					worker.discard();
+					helper.assertTrue(outcomes.equals(List.of(TaskOutcome.cancelled(Cause.REMOVED))),
+							"expected one Cancelled(REMOVED), got " + outcomes);
+					List<String> cancelled = cancelledLines(joined.drainSystemChat());
+					helper.assertTrue(cancelled.size() == 1 && cancelled.get(0).endsWith("-> cancelled (worker removed)"),
+							"expected one removal report, got " + cancelled);
+				})
+				.thenExecute(() -> RtsModeGameTest.leave(player))
+				.thenSucceed();
 	}
 }

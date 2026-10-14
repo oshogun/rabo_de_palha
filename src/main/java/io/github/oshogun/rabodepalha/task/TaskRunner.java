@@ -61,25 +61,29 @@ public class TaskRunner<C> {
 		}
 	}
 
-	/** Stops the current task (if any) with {@code cancelled = true} and reports {@link TaskOutcome.Cancelled}. */
-	public void cancelCurrent(C ctx) {
+	/**
+	 * Stops the current task (if any) with {@code cancelled = true} and reports
+	 * {@link TaskOutcome.Cancelled} with {@code cause}.
+	 */
+	public void cancelCurrent(C ctx, TaskOutcome.Cancelled.Cause cause) {
+		TaskOutcome.Cancelled outcome = TaskOutcome.cancelled(cause);
 		Task<C> task = current;
 		if (task == null) {
 			return;
 		}
 		if (started) {
-			finish(ctx, task, TaskOutcome.CANCELLED, true);
+			finish(ctx, task, outcome, true);
 		} else {
 			// Never started, so there is nothing to stop.
 			current = null;
-			notifyListeners(task, TaskOutcome.CANCELLED);
+			notifyListeners(task, outcome);
 		}
 	}
 
-	/** Cancels the current task and drops everything queued. */
-	public void clear(C ctx) {
+	/** Cancels the current task with {@code cause} and drops everything queued. */
+	public void clear(C ctx, TaskOutcome.Cancelled.Cause cause) {
 		queue.clear();
-		cancelCurrent(ctx);
+		cancelCurrent(ctx, cause);
 	}
 
 	public Optional<Task<C>> current() {

@@ -5,6 +5,8 @@ import io.github.oshogun.rabodepalha.registry.ModAttachments;
 import io.github.oshogun.rabodepalha.rts.RtsEntryState;
 import io.github.oshogun.rabodepalha.rts.RtsMode;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,6 +23,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -50,16 +53,41 @@ public class RtsModeGameTest {
 
 	/** Logs in a non-op mock player in SURVIVAL, standing at {@link #START}. */
 	static ServerPlayer joinPlayer(GameTestHelper helper) {
+		return joinPlayerWithChannel(helper).player();
+	}
+
+	/**
+	 * A mock player and the channel behind its connection. No encoder is installed, so packets sent to the
+	 * player pile up unencoded in {@link EmbeddedChannel#outboundMessages()}.
+	 */
+	record JoinedPlayer(ServerPlayer player, EmbeddedChannel channel) {
+		/** The system chat lines sent since the last call, consuming every queued packet. */
+		List<String> drainSystemChat() {
+			// The server suspends flushing while it ticks, and unflushed writes are not in the outbound queue yet.
+			channel.flushOutbound();
+			List<String> lines = new ArrayList<>();
+			Object message;
+			while ((message = channel.readOutbound()) != null) {
+				if (message instanceof ClientboundSystemChatPacket chat && !chat.overlay()) {
+					lines.add(chat.content().getString());
+				}
+			}
+			return lines;
+		}
+	}
+
+	/** Like {@link #joinPlayer}, but keeps the channel so tests can read what was sent to the player. */
+	static JoinedPlayer joinPlayerWithChannel(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
 		String name = "rts-" + PLAYER_COUNTER.incrementAndGet();
 		CommonListenerCookie cookie = CommonListenerCookie.createInitial(new GameProfile(UUID.randomUUID(), name), false);
 		ServerPlayer player = new ServerPlayer(level.getServer(), level, cookie.gameProfile(), cookie.clientInformation());
 		Connection connection = new Connection(PacketFlow.SERVERBOUND);
-		new EmbeddedChannel(connection);
+		EmbeddedChannel channel = new EmbeddedChannel(connection);
 		level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
 		player.setGameMode(GameType.SURVIVAL);
 		moveTo(helper, player, START, 30.0F, 10.0F);
-		return player;
+		return new JoinedPlayer(player, channel);
 	}
 
 	private static void moveTo(GameTestHelper helper, ServerPlayer player, BlockPos rel, float yRot, float xRot) {

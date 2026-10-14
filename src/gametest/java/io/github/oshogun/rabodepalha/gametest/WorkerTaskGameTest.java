@@ -4,6 +4,7 @@ import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
+import io.github.oshogun.rabodepalha.task.TaskOutcome.Cancelled.Cause;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
@@ -630,11 +631,11 @@ public class WorkerTaskGameTest {
 		helper.startSequence()
 				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
 				.thenExecute(() -> {
-					worker.tasks().cancelCurrent(worker);
+					worker.tasks().cancelCurrent(worker, Cause.CLEARED);
 					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after cancel");
 					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after cancel");
-					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
-							"expected one Cancelled outcome, got " + outcomes);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome().equals(TaskOutcome.cancelled(Cause.CLEARED)),
+							"expected one Cancelled(CLEARED) outcome, got " + outcomes);
 				})
 				.thenExecuteAfter(40, () -> {
 					helper.assertBlockPresent(Blocks.STONE, rel);
@@ -658,10 +659,10 @@ public class WorkerTaskGameTest {
 				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent(), "mine not started yet"))
 				.thenExecuteAfter(5, () -> {
 					helper.assertTrue(outcomes.isEmpty(), "mine finished before the cancel: " + outcomes);
-					worker.tasks().cancelCurrent(worker);
+					worker.tasks().cancelCurrent(worker, Cause.CLEARED);
 					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after cancel");
-					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
-							"expected one Cancelled outcome, got " + outcomes);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome().equals(TaskOutcome.cancelled(Cause.CLEARED)),
+							"expected one Cancelled(CLEARED) outcome, got " + outcomes);
 				})
 				.thenExecuteAfter(40, () -> helper.assertBlockPresent(Blocks.STONE, rel))
 				.thenSucceed();
@@ -704,9 +705,9 @@ public class WorkerTaskGameTest {
 				.thenWaitUntil(() -> assertBreakStarted(helper, cracks, abs))
 				.thenExecute(() -> {
 					helper.assertTrue(outcomes.isEmpty(), "mine finished before the cancel: " + outcomes);
-					worker.tasks().cancelCurrent(worker);
-					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
-							"expected one Cancelled outcome, got " + outcomes);
+					worker.tasks().cancelCurrent(worker, Cause.CLEARED);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome().equals(TaskOutcome.cancelled(Cause.CLEARED)),
+							"expected one Cancelled(CLEARED) outcome, got " + outcomes);
 					helper.assertBlockPresent(Blocks.STONE, rel);
 					assertCrackCleared(helper, cracks, abs);
 				})
@@ -756,12 +757,12 @@ public class WorkerTaskGameTest {
 		helper.startSequence()
 				.thenWaitUntil(() -> helper.assertTrue(!worker.getNavigation().isDone(), "worker is not walking yet"))
 				.thenExecute(() -> {
-					worker.tasks().clear(worker);
+					worker.tasks().clear(worker, Cause.CLEARED);
 					helper.assertTrue(worker.tasks().current().isEmpty(), "current task survived clear");
 					helper.assertTrue(worker.tasks().pending().isEmpty(), "pending tasks survived clear");
 					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after clear");
-					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
-							"expected one Cancelled outcome, got " + outcomes);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome().equals(TaskOutcome.cancelled(Cause.CLEARED)),
+							"expected one Cancelled(CLEARED) outcome, got " + outcomes);
 				})
 				.thenExecuteAfter(40, () -> {
 					helper.assertBlockPresent(Blocks.STONE, mineRel);
@@ -788,8 +789,12 @@ public class WorkerTaskGameTest {
 					worker.discard();
 					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after removal");
 					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after removal");
-					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome() instanceof TaskOutcome.Cancelled,
-							"expected one Cancelled outcome, got " + outcomes);
+					helper.assertTrue(outcomes.size() == 1 && outcomes.get(0).outcome().equals(TaskOutcome.cancelled(Cause.REMOVED)),
+							"expected one Cancelled(REMOVED) outcome, got " + outcomes);
+					// The commander is still told the worker is gone.
+					helper.assertTrue(WorkerEntity.notifiesCommanders(outcomes.get(0).outcome()), "removal is not reported to commanders");
+					helper.assertTrue(WorkerEntity.describeOutcome(outcomes.get(0).outcome()).equals("cancelled (worker removed)"),
+							"removal described as " + WorkerEntity.describeOutcome(outcomes.get(0).outcome()));
 				})
 				.thenExecuteAfter(40, () -> helper.assertBlockPresent(Blocks.STONE, rel))
 				.thenSucceed();

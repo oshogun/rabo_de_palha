@@ -8,6 +8,7 @@ import java.util.Locale;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.task.Task;
+import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
@@ -144,7 +145,7 @@ public final class RtsOrders {
 		for (WorkerEntity worker : valid) {
 			worker.addCommander(player.getUUID());
 			if (!payload.append()) {
-				worker.tasks().clear(worker);
+				worker.tasks().clear(worker, TaskOutcome.Cancelled.Cause.SUPERSEDED);
 			}
 			worker.tasks().enqueue(newTask(kind, target, placeState));
 		}

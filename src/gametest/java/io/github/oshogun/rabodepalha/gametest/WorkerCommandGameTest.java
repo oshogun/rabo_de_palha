@@ -3,6 +3,8 @@ package io.github.oshogun.rabodepalha.gametest;
 import io.github.oshogun.rabodepalha.command.WorkerCommands;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
 import io.github.oshogun.rabodepalha.task.Task;
+import io.github.oshogun.rabodepalha.task.TaskOutcome;
+import io.github.oshogun.rabodepalha.task.TaskOutcome.Cancelled.Cause;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
@@ -767,17 +769,31 @@ public class WorkerCommandGameTest {
 	public void clearStopsRunningTask(GameTestHelper helper) {
 		layFloor(helper);
 		WorkerEntity worker = helper.spawn(ModEntities.WORKER, new BlockPos(1, 1, 1));
+		List<TaskOutcome> outcomes = new ArrayList<>();
+		worker.tasks().addListener((task, outcome) -> outcomes.add(outcome));
+		// A real player commander, so any "cancelled" report would show up in its chat.
+		RtsModeGameTest.JoinedPlayer joined = RtsModeGameTest.joinPlayerWithChannel(helper);
+		ServerPlayer player = joined.player();
 		RecordingCommandSource rec = new RecordingCommandSource();
-		run(helper, sourceAt(helper, rec, worker), "rdp goto " + coords(helper.absolutePos(new BlockPos(6, 1, 6))) + " "
-				+ worker.getStringUUID());
+		run(helper, playerSource(helper, rec, worker.position(), LEVEL_2, player),
+				"rdp goto " + coords(helper.absolutePos(new BlockPos(6, 1, 6))) + " " + worker.getStringUUID());
+		helper.assertTrue(worker.commanders().contains(player.getUUID()), "player not recorded as commander");
 
 		helper.startSequence()
 				.thenWaitUntil(() -> helper.assertTrue(worker.tasks().current().isPresent(), "move_to not started yet"))
 				.thenExecute(() -> {
-					run(helper, source(helper, rec, worker.position(), LEVEL_2), "rdp clear " + worker.getStringUUID());
+					joined.drainSystemChat();
+					run(helper, playerSource(helper, rec, worker.position(), LEVEL_2, player), "rdp clear " + worker.getStringUUID());
 					helper.assertTrue(worker.tasks().isIdle(), "runner not idle after clear: " + queueOf(worker));
 					helper.assertTrue(worker.getNavigation().isDone(), "navigation still running after clear");
+					helper.assertTrue(outcomes.equals(List.of(TaskOutcome.cancelled(Cause.CLEARED))),
+							"expected one Cancelled(CLEARED), got " + outcomes);
+					helper.assertFalse(WorkerEntity.notifiesCommanders(outcomes.get(0)), "cleared task would be reported");
+					helper.assertTrue(rec.anyContains("Cleared tasks of 1 worker(s)"), "no clear feedback: " + rec.messages());
+					List<String> cancelled = joined.drainSystemChat().stream().filter(line -> line.contains("cancelled")).toList();
+					helper.assertTrue(cancelled.isEmpty(), "commander was told about the clear: " + cancelled);
 				})
+				.thenExecute(() -> RtsModeGameTest.leave(player))
 				.thenSucceed();
 	}
 

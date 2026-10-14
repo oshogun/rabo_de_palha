@@ -3,7 +3,10 @@ package io.github.oshogun.rabodepalha.task;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import io.github.oshogun.rabodepalha.task.TaskOutcome.Cancelled.Cause;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -75,7 +78,7 @@ class TaskRunnerTest {
 		runner.enqueue(cancelled);
 
 		tick(5);
-		runner.cancelCurrent(CTX);
+		runner.cancelCurrent(CTX, Cause.SUPERSEDED);
 		tick(3);
 
 		assertEquals(1, done.starts);
@@ -85,7 +88,36 @@ class TaskRunnerTest {
 		assertEquals(1, cancelled.stops);
 		assertEquals(List.of(true), cancelled.cancelledFlags);
 		assertInstanceOf(TaskOutcome.Succeeded.class, outcomes.get(0));
-		assertInstanceOf(TaskOutcome.Cancelled.class, outcomes.get(1));
+		assertEquals(new TaskOutcome.Cancelled(Cause.SUPERSEDED), outcomes.get(1));
+	}
+
+	@Test
+	void cancelReportsCauseForStartedTask() {
+		FakeTask task = new FakeTask("a", 100);
+		runner.enqueue(task);
+		tick(1);
+
+		runner.cancelCurrent(CTX, Cause.REMOVED);
+
+		assertEquals(List.of(true), task.cancelledFlags);
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.REMOVED)), outcomes);
+	}
+
+	@Test
+	void clearReportsSuperseded() {
+		runner.enqueue(new FakeTask("a", 100));
+		runner.enqueue(new FakeTask("b", 1));
+		tick(1);
+
+		runner.clear(CTX, Cause.SUPERSEDED);
+
+		assertTrue(runner.isIdle());
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.SUPERSEDED)), outcomes);
+	}
+
+	@Test
+	void cancelledRejectsNullCause() {
+		assertThrows(NullPointerException.class, () -> new TaskOutcome.Cancelled(null));
 	}
 
 	@Test
@@ -97,8 +129,8 @@ class TaskRunnerTest {
 
 		assertEquals(1, task.ticks);
 		assertEquals(1, outcomes.size());
-		runner.cancelCurrent(CTX);
-		runner.clear(CTX);
+		runner.cancelCurrent(CTX, Cause.CLEARED);
+		runner.clear(CTX, Cause.CLEARED);
 		assertEquals(1, task.stops);
 		assertEquals(1, outcomes.size());
 	}
@@ -122,7 +154,7 @@ class TaskRunnerTest {
 		runner.enqueue(b);
 		tick(2);
 
-		runner.clear(CTX);
+		runner.clear(CTX, Cause.CLEARED);
 		tick(3);
 
 		assertTrue(runner.isIdle());
@@ -132,7 +164,7 @@ class TaskRunnerTest {
 		// Pending tasks never started, so they are neither stopped nor reported.
 		assertEquals(0, b.starts);
 		assertEquals(0, b.stops);
-		assertEquals(List.of(TaskOutcome.CANCELLED), outcomes);
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.CLEARED)), outcomes);
 	}
 
 	@Test
