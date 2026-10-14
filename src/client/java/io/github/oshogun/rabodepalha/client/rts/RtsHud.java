@@ -55,7 +55,10 @@ public final class RtsHud {
 	}
 
 	public static void init() {
-		HudElementRegistry.attachElementAfter(VanillaHudElements.HOTBAR, RaboDePalha.id("rts_selection"),
+		// Not attached to HOTBAR: RTS mode puts the player in spectator, which never draws the item hotbar,
+		// so the HOTBAR root (and anything attached to it) never runs. CHAT is drawn in every game mode, and
+		// attaching before it keeps chat, the player list and subtitles on top of the RTS HUD.
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, RaboDePalha.id("rts_selection"),
 				RtsHud::extract);
 	}
 
