@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
@@ -52,6 +53,13 @@ public final class RtsClient {
 	public static KeyMapping tiltDownKey;
 	/** Hotkeys of the command bar, in the order of {@link RtsCommands#COMMANDS}. */
 	public static List<KeyMapping> commandKeys = List.of();
+	/**
+	 * Slot keys 1 to 9: each presses the button in its slot on the bar's current page. They share the digits with
+	 * the vanilla hotbar keys, which RTS mode swallows (see {@code SpectatorGuiMixin}).
+	 */
+	public static List<KeyMapping> slotKeys = List.of();
+	/** Cycles the command bar's pages; not Tab, which keeps the player list. */
+	public static KeyMapping pageKey;
 
 	/** Toggles freezing the camera height while panning. */
 	public static KeyMapping lockHeightKey;
@@ -125,6 +133,12 @@ public final class RtsClient {
 				.map(command -> KeyMappingHelper.registerKeyMapping(new KeyMapping(command.keyMappingName(),
 						InputConstants.Type.KEYBOARD, command.defaultKey(), CATEGORY)))
 				.toList();
+		slotKeys = IntStream.rangeClosed(1, 9)
+				.mapToObj(slot -> KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_slot." + slot,
+						InputConstants.Type.KEYBOARD, InputConstants.KEY_1 + slot - 1, CATEGORY)))
+				.toList();
+		pageKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_page",
+				InputConstants.Type.KEYBOARD, InputConstants.KEY_GRAVE, CATEGORY));
 		levelUpKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_level_up",
 				InputConstants.Type.KEYBOARD, InputConstants.KEY_PAGEUP, CATEGORY));
 		levelDownKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.rabodepalha.rts_level_down",
@@ -387,6 +401,15 @@ public final class RtsClient {
 					RtsCommandClient.activate(RtsCommands.COMMANDS.get(i));
 				}
 			}
+			while (pageKey.consumeClick()) {
+				RtsCommandClient.cyclePage();
+			}
+			for (int i = 0; i < slotKeys.size(); i++) {
+				KeyMapping key = slotKeys.get(i);
+				while (key.consumeClick()) {
+					RtsCommandClient.pressSlot(i + 1);
+				}
+			}
 			while (rotateBlueprintKey.consumeClick()) {
 				if (RtsBlueprintsClient.isArmed()) {
 					RtsBlueprintsClient.cycleRotation();
@@ -462,14 +485,19 @@ public final class RtsClient {
 				Component.translatable(on ? "rabodepalha.rts.cut.on" : "rabodepalha.rts.cut.off")));
 	}
 
-	/** Drops command hotkey, view level, brightness and cutaway presses made outside RTS mode or behind a screen. */
+	/** Drops command hotkey, slot, page, view level, brightness and cutaway presses made outside RTS mode or behind a screen. */
 	private static void dropCommandPresses() {
 		for (KeyMapping key : commandKeys) {
 			while (key.consumeClick()) {
 				// Discard.
 			}
 		}
-		for (KeyMapping key : List.of(levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey, brightnessKey, bubbleKey,
+		for (KeyMapping key : slotKeys) {
+			while (key.consumeClick()) {
+				// Discard.
+			}
+		}
+		for (KeyMapping key : List.of(pageKey, levelUpKey, levelDownKey, levelModeKey, levelToWorkerKey, brightnessKey, bubbleKey,
 				roofsKey, wallsKey)) {
 			while (key.consumeClick()) {
 				// Discard.

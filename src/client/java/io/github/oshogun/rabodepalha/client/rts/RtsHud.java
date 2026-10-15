@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -37,6 +38,7 @@ import io.github.oshogun.rabodepalha.rts.RtsBlueprintPicker;
 import io.github.oshogun.rabodepalha.rts.RtsBrightness;
 import io.github.oshogun.rabodepalha.rts.RtsBuildMaterials;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
+import io.github.oshogun.rabodepalha.rts.RtsCommandPage;
 import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
@@ -63,6 +65,8 @@ public final class RtsHud {
 	private static final int BUTTON_COLOR = 0xB0000000;
 	private static final int BUTTON_HOVER_COLOR = 0xB0505050;
 	private static final int BUTTON_ARMED_COLOR = 0xFFFFD84A;
+	private static final int TAB_CURRENT_COLOR = 0xE0806020;
+	private static final int SLOT_DIGIT_COLOR = 0xFFC0C0C0;
 	/** Height of the strip in a command's kind colour along a button's bottom. */
 	private static final int KIND_STRIP = 2;
 	private static final int PANEL_COLOR = 0x90000000;
@@ -145,7 +149,8 @@ public final class RtsHud {
 			leftText(graphics, client, what, y, TEXT_COLOR);
 			y += lineHeight;
 		}
-		int hovered = RtsCommandClient.hoveredButton();
+		RtsCommands.RtsCommand hovered = RtsCommandClient.hoveredButton();
+		RtsCommandPage hoveredTab = RtsCommandClient.hoveredTab();
 		RtsPanel.Hit panelHit = RtsPanelClient.hovered();
 		RtsContainerPanel.Layout view = RtsContainerViewClient.layout();
 		RtsContainerPanel.Hit viewHit = hoveredView(client, view);
@@ -155,7 +160,7 @@ public final class RtsHud {
 		RtsDigArea digArea = RtsCommandClient.digArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
-		} else if (hover != null && hovered < 0 && panelHit instanceof RtsPanel.Hit.None
+		} else if (hover != null && hovered == null && hoveredTab == null && panelHit instanceof RtsPanel.Hit.None
 				&& viewHit instanceof RtsContainerPanel.Hit.None && pickerHit instanceof RtsBlueprintPicker.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
 			// already states the reason.
@@ -197,7 +202,7 @@ public final class RtsHud {
 		if (picker != null) {
 			extractPicker(graphics, client, picker, pickerHit);
 		}
-		extractCommandBar(graphics, client, hovered);
+		extractCommandBar(graphics, client, hovered, hoveredTab);
 	}
 
 	/**
@@ -637,18 +642,27 @@ public final class RtsHud {
 		graphics.text(client.font, label, x, labelY, labelColor);
 	}
 
-	/** Draws the command bar at the bottom centre, and the hovered button's tooltip on top of it. */
-	private static void extractCommandBar(GuiGraphicsExtractor graphics, Minecraft client, int hovered) {
-		List<RtsCommands.RtsCommand> commands = RtsCommands.COMMANDS;
+	/**
+	 * Draws the command bar at the bottom centre: the current page's buttons, then the ones on every page, with
+	 * the page tabs above, and the hovered button's or tab's tooltip on top of it.
+	 */
+	private static void extractCommandBar(GuiGraphicsExtractor graphics, Minecraft client,
+			RtsCommands.@Nullable RtsCommand hovered, @Nullable RtsCommandPage hoveredTab) {
+		RtsCommandPage page = RtsCommandClient.page();
+		List<RtsCommands.RtsCommand> onPage = RtsCommands.PAGES.commands(page);
+		List<RtsCommands.RtsCommand> commands = new ArrayList<>(onPage);
+		commands.addAll(RtsCommands.PAGES.globals());
 		Window window = client.getWindow();
-		List<RtsCommandBar.Rect> buttons = RtsCommandBar.layout(commands.size(), window.getGuiScaledWidth(),
-				window.getGuiScaledHeight());
+		int guiWidth = window.getGuiScaledWidth();
+		int guiHeight = window.getGuiScaledHeight();
+		List<RtsCommandBar.Rect> buttons = RtsCommandBar.pagedLayout(onPage.size(), RtsCommands.PAGES.globals().size(),
+				guiWidth, guiHeight);
 		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
 		for (int i = 0; i < buttons.size(); i++) {
 			RtsCommandBar.Rect button = buttons.get(i);
 			RtsCommands.RtsCommand command = commands.get(i);
 			graphics.fill(button.x(), button.y(), button.x() + button.w(), button.y() + button.h(),
-					i == hovered ? BUTTON_HOVER_COLOR : BUTTON_COLOR);
+					command == hovered ? BUTTON_HOVER_COLOR : BUTTON_COLOR);
 			// The kind's colour, the same as its queued-order markers in the world.
 			command.kind().ifPresent(kind -> graphics.fill(button.x() + 1, button.y() + button.h() - 1 - KIND_STRIP,
 					button.x() + button.w() - 1, button.y() + button.h() - 1, RtsOrderColors.line(kind)));
@@ -658,16 +672,58 @@ public final class RtsHud {
 			// Item icons are 16x16.
 			graphics.item(command.icon().get(), button.x() + (button.w() - 16) / 2, button.y() + (button.h() - 16) / 2);
 		}
-		if (hovered >= 0 && hovered < RtsClient.commandKeys.size()) {
+
+		Font font = client.font;
+		List<RtsCommandPage> pages = RtsCommands.PAGES.visiblePages();
+		List<RtsCommandBar.Rect> tabs = RtsCommandBar.tabsLayout(RtsCommandClient.tabWidths(font), guiWidth, guiHeight);
+		for (int i = 0; i < tabs.size(); i++) {
+			RtsCommandBar.Rect tab = tabs.get(i);
+			RtsCommandPage tabPage = pages.get(i);
+			int color = tabPage == page ? TAB_CURRENT_COLOR : tabPage == hoveredTab ? BUTTON_HOVER_COLOR : BUTTON_COLOR;
+			graphics.fill(tab.x(), tab.y(), tab.x() + tab.w(), tab.y() + tab.h(), color);
+			graphics.centeredText(font, RtsCommands.pageName(tabPage), tab.x() + tab.w() / 2,
+					tab.y() + (tab.h() - font.lineHeight) / 2 + 1, TEXT_COLOR);
+		}
+
+		// The slot digits go above the icons.
+		graphics.nextStratum();
+		for (int i = 0; i < onPage.size(); i++) {
+			RtsCommandBar.Rect button = buttons.get(i);
+			graphics.text(font, Component.literal(Integer.toString(i + 1)), button.x() + 1, button.y() + 1,
+					SLOT_DIGIT_COLOR, true);
+		}
+
+		Component tooltip = null;
+		if (hovered != null) {
+			tooltip = commandTooltip(hovered, RtsCommands.PAGES.slotOf(page, hovered));
+		} else if (hoveredTab != null) {
+			tooltip = Component.empty().append(RtsCommands.pageName(hoveredTab)).append(" (")
+					.append(RtsClient.pageKey.getTranslatedKeyMessage()).append(")");
+		}
+		if (tooltip != null) {
 			// Tooltips set "for next frame" are only drawn by screens, so the HUD draws its own, above the icons.
 			graphics.nextStratum();
-			Component tooltip = Component.empty().append(commands.get(hovered).displayName()).append(" (")
-					.append(RtsClient.commandKeys.get(hovered).getTranslatedKeyMessage()).append(")");
 			double scale = window.getGuiScale();
 			int mouseX = (int) RtsCommandBar.toGui(client.mouseHandler.xpos(), scale);
 			int mouseY = (int) RtsCommandBar.toGui(client.mouseHandler.ypos(), scale);
-			graphics.tooltip(client.font, List.of(ClientTooltipComponent.create(tooltip.getVisualOrderText())), mouseX,
+			graphics.tooltip(font, List.of(ClientTooltipComponent.create(tooltip.getVisualOrderText())), mouseX,
 					mouseY, DefaultTooltipPositioner.INSTANCE, null, false);
 		}
+	}
+
+	/** A button's tooltip: its name, then its slot when it has one, e.g. "Mine [2]", then its letter if bound. */
+	private static Component commandTooltip(RtsCommands.RtsCommand command, int slot) {
+		Component tooltip = Component.empty().append(command.displayName());
+		if (slot > 0) {
+			tooltip = Component.empty().append(tooltip).append(" [" + slot + "]");
+		}
+		int index = RtsCommands.COMMANDS.indexOf(command);
+		if (index >= 0 && index < RtsClient.commandKeys.size()) {
+			KeyMapping key = RtsClient.commandKeys.get(index);
+			if (!key.isUnbound()) {
+				tooltip = Component.empty().append(tooltip).append(" (").append(key.getTranslatedKeyMessage()).append(")");
+			}
+		}
+		return tooltip;
 	}
 }

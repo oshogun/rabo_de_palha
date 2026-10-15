@@ -1,10 +1,14 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
+import java.util.List;
+
 import com.mojang.blaze3d.platform.Window;
 
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.BlockHitResult;
@@ -12,18 +16,21 @@ import net.minecraft.world.phys.BlockHitResult;
 import io.github.oshogun.rabodepalha.rts.RtsAreaDrag;
 import io.github.oshogun.rabodepalha.rts.RtsArmedMode;
 import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
+import io.github.oshogun.rabodepalha.rts.RtsCommandPage;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 
 /**
- * Client state of the RTS command bar: which command is armed, and the clicks on the bar and in the world that
- * use it. Mouse positions are window pixels, as the mouse handler reports them; the bar is laid out in GUI pixels.
+ * Client state of the RTS command bar: which page is shown, which command is armed, and the clicks on the bar and
+ * in the world that use it. Mouse positions are window pixels, as the mouse handler reports them; the bar is laid out in GUI pixels.
  */
 public final class RtsCommandClient {
 	private static final RtsArmedMode<RtsCommands.RtsCommand> STATE = new RtsArmedMode<>();
 	/** The area being marked by an armed {@link RtsCommands.Area} command. */
 	private static final RtsAreaDrag DRAG = new RtsAreaDrag();
+	/** The page whose buttons the bar shows and the slot keys press. */
+	private static RtsCommandPage page = RtsCommands.PAGES.first();
 
 	private RtsCommandClient() {
 	}
@@ -35,6 +42,46 @@ public final class RtsCommandClient {
 			case RtsCommands.Armed armed -> arm(command);
 			case RtsCommands.Area area -> arm(command);
 		}
+	}
+
+	/** The page the bar shows. */
+	public static RtsCommandPage page() {
+		page = RtsCommands.PAGES.valid(page);
+		return page;
+	}
+
+	/** Shows {@code next}; changing page cancels an armed command and an area being marked, like Esc. */
+	public static void selectPage(RtsCommandPage next) {
+		RtsCommandPage target = RtsCommands.PAGES.valid(next);
+		if (target == page()) {
+			return;
+		}
+		DRAG.cancel();
+		STATE.disarm();
+		dropBlueprintUnlessBuild();
+		page = target;
+	}
+
+	/** Shows the next page, wrapping round; used by the page key. */
+	public static void cyclePage() {
+		selectPage(RtsCommands.PAGES.next(page()));
+	}
+
+	/**
+	 * Handles slot key {@code slot} (1 to 9). With Place armed it picks the hotbar slot whose block the order
+	 * places, as the digit keys did before the bar had pages; otherwise it uses the command in that slot on the
+	 * current page, if there is one.
+	 */
+	public static void pressSlot(int slot) {
+		RtsCommands.RtsCommand armed = STATE.armed();
+		if (armed != null && armed.id().equals(RtsCommands.PLACE)) {
+			LocalPlayer player = Minecraft.getInstance().player;
+			if (player != null) {
+				player.getInventory().setSelectedSlot(slot - 1);
+			}
+			return;
+		}
+		RtsCommands.PAGES.slot(page(), slot).ifPresent(RtsCommandClient::activate);
 	}
 
 	/** Arms or toggles off {@code command}, dropping any area being marked. */
@@ -66,10 +113,15 @@ public final class RtsCommandClient {
 	 */
 	public static boolean onLeftPress(double x, double y, boolean shift) {
 		if (overBar(x, y)) {
-			// A press in a gap between buttons is consumed too.
-			int button = buttonAt(x, y);
-			if (button >= 0) {
-				activate(RtsCommands.COMMANDS.get(button));
+			// A press in a gap between buttons or tabs is consumed too.
+			RtsCommandPage tab = tabAt(x, y);
+			if (tab != null) {
+				selectPage(tab);
+				return true;
+			}
+			RtsCommands.RtsCommand button = buttonAt(x, y);
+			if (button != null) {
+				activate(button);
 			}
 			return true;
 		}
@@ -166,12 +218,24 @@ public final class RtsCommandClient {
 		return DRAG.scroll((int) Math.signum(yoffset));
 	}
 
-	/** Whether the window pixel ({@code x}, {@code y}) is on the bar, gaps between buttons included. */
+	/** Whether the window pixel ({@code x}, {@code y}) is on the bar or its page tabs, gaps included. */
 	public static boolean overBar(double x, double y) {
-		Window window = Minecraft.getInstance().getWindow();
+		Minecraft client = Minecraft.getInstance();
+		Window window = client.getWindow();
 		double scale = window.getGuiScale();
-		return RtsCommandBar.contains(RtsCommands.COMMANDS.size(), window.getGuiScaledWidth(),
-				window.getGuiScaledHeight(), RtsCommandBar.toGui(x, scale), RtsCommandBar.toGui(y, scale));
+		return RtsCommandBar.pagedContains(RtsCommands.PAGES.commands(page()).size(), RtsCommands.PAGES.globals().size(),
+				tabWidths(client.font), window.getGuiScaledWidth(), window.getGuiScaledHeight(),
+				RtsCommandBar.toGui(x, scale), RtsCommandBar.toGui(y, scale));
+	}
+
+	/**
+	 * The width of each shown page's tab, in tab order. Drawing and hit-testing both use it, so they agree on
+	 * where the tabs are.
+	 */
+	public static int[] tabWidths(Font font) {
+		return RtsCommands.PAGES.visiblePages().stream()
+				.mapToInt(p -> font.width(RtsCommands.pageName(p)) + 2 * RtsCommandBar.TAB_PAD)
+				.toArray();
 	}
 
 	/**
@@ -214,13 +278,22 @@ public final class RtsCommandClient {
 		return DRAG.phase();
 	}
 
-	/** The index of the bar button under the mouse cursor, or -1. */
-	public static int hoveredButton() {
+	/** The command whose bar button is under the mouse cursor, or null. */
+	public static RtsCommands.@Nullable RtsCommand hoveredButton() {
 		Minecraft client = Minecraft.getInstance();
 		if (client.mouseHandler == null) {
-			return -1;
+			return null;
 		}
 		return buttonAt(client.mouseHandler.xpos(), client.mouseHandler.ypos());
+	}
+
+	/** The page whose tab is under the mouse cursor, or null. */
+	public static @Nullable RtsCommandPage hoveredTab() {
+		Minecraft client = Minecraft.getInstance();
+		if (client.mouseHandler == null) {
+			return null;
+		}
+		return tabAt(client.mouseHandler.xpos(), client.mouseHandler.ypos());
 	}
 
 	/** What a left-click would do with the armed command, or what a right-click move would do otherwise. */
@@ -242,10 +315,26 @@ public final class RtsCommandClient {
 		RtsBlueprintsClient.clear();
 	}
 
-	private static int buttonAt(double x, double y) {
+	private static RtsCommands.@Nullable RtsCommand buttonAt(double x, double y) {
 		Window window = Minecraft.getInstance().getWindow();
 		double scale = window.getGuiScale();
-		return RtsCommandBar.hitTest(RtsCommands.COMMANDS.size(), window.getGuiScaledWidth(),
+		List<RtsCommands.RtsCommand> onPage = RtsCommands.PAGES.commands(page());
+		List<RtsCommands.RtsCommand> globals = RtsCommands.PAGES.globals();
+		RtsCommandBar.Hit hit = RtsCommandBar.pagedHitTest(onPage.size(), globals.size(), window.getGuiScaledWidth(),
 				window.getGuiScaledHeight(), RtsCommandBar.toGui(x, scale), RtsCommandBar.toGui(y, scale));
+		return switch (hit.kind()) {
+			case PAGE -> onPage.get(hit.index());
+			case GLOBAL -> globals.get(hit.index());
+			case NONE -> null;
+		};
+	}
+
+	private static @Nullable RtsCommandPage tabAt(double x, double y) {
+		Minecraft client = Minecraft.getInstance();
+		Window window = client.getWindow();
+		double scale = window.getGuiScale();
+		int tab = RtsCommandBar.tabHitTest(tabWidths(client.font), window.getGuiScaledWidth(),
+				window.getGuiScaledHeight(), RtsCommandBar.toGui(x, scale), RtsCommandBar.toGui(y, scale));
+		return tab < 0 ? null : RtsCommands.PAGES.visiblePages().get(tab);
 	}
 }

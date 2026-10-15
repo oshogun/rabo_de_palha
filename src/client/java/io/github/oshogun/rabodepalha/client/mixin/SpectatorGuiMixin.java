@@ -1,8 +1,6 @@
 package io.github.oshogun.rabodepalha.client.mixin;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.spectator.SpectatorGui;
-import net.minecraft.client.player.LocalPlayer;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -26,16 +24,13 @@ abstract class SpectatorGuiMixin {
 	}
 
 	/**
-	 * Spectators route the digit keys here instead of to the inventory; in RTS mode they pick the hotbar slot
-	 * whose block a place order uses.
+	 * Spectators route the hotbar keys here instead of to the inventory; in RTS mode they must not reach the
+	 * spectator menu. The digits are read by the RTS slot keys instead, which press the bar's buttons or, with
+	 * Place armed, pick the hotbar slot whose block the order uses.
 	 */
 	@Inject(method = "onHotbarSelected", at = @At("HEAD"), cancellable = true)
-	private void rabodepalha$selectSlotInRts(int slot, CallbackInfo ci) {
+	private void rabodepalha$swallowSlotInRts(int slot, CallbackInfo ci) {
 		if (RtsClient.isActive()) {
-			LocalPlayer player = Minecraft.getInstance().player;
-			if (player != null) {
-				player.getInventory().setSelectedSlot(slot);
-			}
 			ci.cancel();
 		}
 	}

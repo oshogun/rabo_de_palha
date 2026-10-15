@@ -36,7 +36,7 @@ public final class RtsHoverOverlay {
 		RtsSelectionClient.updateHover(client);
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
 		// The command bar covers the world under it: a click there uses the bar, so highlight nothing.
-		if (hover == null || RtsCommandClient.hoveredButton() >= 0) {
+		if (hover == null || RtsCommandClient.hoveredButton() != null || RtsCommandClient.hoveredTab() != null) {
 			return;
 		}
 		WorkerEntity worker = hover.worker();

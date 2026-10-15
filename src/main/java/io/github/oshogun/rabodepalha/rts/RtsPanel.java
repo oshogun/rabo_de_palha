@@ -112,9 +112,9 @@ public final class RtsPanel {
 		return guiWidth - MARGIN - width(guiWidth);
 	}
 
-	/** The lowest the panel's bottom edge may go: {@link #GAP} above the command bar. */
+	/** The lowest the panel's bottom edge may go: {@link #GAP} above the command bar and its page tabs. */
 	public static int maxBottom(int guiHeight) {
-		return guiHeight - RtsCommandBar.BOTTOM_MARGIN - RtsCommandBar.BUTTON - GAP;
+		return RtsCommandBar.maxTop(guiHeight) - GAP;
 	}
 
 	/** The widest a HUD line drawn at the left margin may be without reaching the panel. */
