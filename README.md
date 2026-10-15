@@ -45,6 +45,14 @@ chest. Blueprints are limited to 4096 entries.
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.
 
+Every walking task paths through closed wooden doors (any door that opens by hand) and fence
+gates. The worker opens them as it arrives, with sound and an arm swing, and closes the ones it
+opened once it is through. It leaves open anything it found open, and keeps a door open while
+another worker within 2 blocks is about to use it. Doors it opened are closed once it steps
+clear, even if its task was cancelled, and when it dies or is removed; a worker that unloads or
+changes dimension leaves the doors it opened open. Iron doors stay impassable, and this does not
+depend on `mobGriefing`.
+
 A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
 7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The
 ticket persists across restarts and goes away when the worker goes idle, dies or is removed. At

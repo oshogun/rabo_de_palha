@@ -6,6 +6,7 @@
 		"BlockInputAccessor",
 		"ChunkMapAccessor",
 		"ChunkMapMixin",
+		"FenceGateBlockAccessor",
 		"ServerChunkCacheAccessor",
 		"ServerGamePacketListenerImplMixin",
 		"StructureTemplateAccessor",

@@ -14,6 +14,7 @@ import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -27,6 +28,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
+import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -49,6 +51,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner<WorkerEntity> tasks = new TaskRunner<>();
+	/** Doors and gates this worker opened and still has to close; not saved. */
+	private final WorkerDoors doors = new WorkerDoors();
 	/**
 	 * Players who gave this worker commands; told about terminal outcomes while online. Saved, capped at
 	 * {@link #MAX_COMMANDERS}, oldest first and most recent last.
@@ -143,10 +147,19 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		return false;
 	}
 
+	/** Paths through closed wooden doors and fence gates; {@link WorkerDoors} opens and closes them. */
+	@Override
+	protected PathNavigation createNavigation(Level level) {
+		return new WorkerNavigation(this, level);
+	}
+
 	@Override
 	protected void customServerAiStep(ServerLevel level) {
 		super.customServerAiStep(level);
 		tasks.tick(this);
+		// After the task so doors open in the same tick the path reaches them. Tracking outlives the
+		// task: a finished or cancelled order still closes its doors once nothing stands in them.
+		doors.tick(level, this);
 	}
 
 	@Override
@@ -219,6 +232,9 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		if (!level().isClientSide() && reason.shouldDestroy()) {
 			// Lets the current task clean up (e.g. clear the crack overlay).
 			tasks.clear(this, TaskOutcome.Cancelled.Cause.REMOVED);
+			if (level() instanceof ServerLevel serverLevel) {
+				doors.closeAllNow(serverLevel, this);
+			}
 		}
 		super.remove(reason);
 	}
@@ -231,6 +247,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	@Override
 	public void onRemoval(RemovalReason reason) {
 		super.onRemoval(reason);
+		if (!reason.shouldDestroy()) {
+			// Unloaded or changed dimension: leave the doors open rather than write to unloading chunks.
+			doors.forget();
+		}
 		if (level() instanceof ServerLevel serverLevel) {
 			if (reason.shouldDestroy() || reason == RemovalReason.CHANGED_DIMENSION) {
 				releaseChunkTicket(serverLevel);
@@ -281,6 +301,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 
 	public TaskRunner<WorkerEntity> tasks() {
 		return tasks;
+	}
+
+	/** Read-only view of the canonical positions of the doors and gates this worker opened and will close. */
+	public Set<BlockPos> openedDoors() {
+		return doors.opened();
 	}
 
 	/**
