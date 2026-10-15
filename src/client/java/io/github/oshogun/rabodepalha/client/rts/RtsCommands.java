@@ -144,6 +144,8 @@ public final class RtsCommands {
 	public static final String HARVEST = "harvest";
 	/** The tend command's id. */
 	public static final String TEND = "tend";
+	/** The irrigate command's id. */
+	public static final String IRRIGATE = "irrigate";
 
 	public static final List<RtsCommand> COMMANDS = List.of(
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
@@ -190,7 +192,12 @@ public final class RtsCommands {
 							(area, shift) -> RtsOrdersClient.sendTend(area, Optional.empty(), shift),
 							area -> Optional.ofNullable(RtsOrdersClient.tendProblem(area)), true,
 							Optional.of(new ContainerStep(RtsOrderHintClient::tendContainer, RtsOrdersClient::sendTend))),
-					Optional.of(RtsTaskKind.TEND)));
+					Optional.of(RtsTaskKind.TEND)),
+			// A click for the 9×9 plot around a block, or a flat drag for a field; the seed is picked in the panel.
+			new RtsCommand(IRRIGATE, () -> new ItemStack(Items.WATER_BUCKET), InputConstants.UNKNOWN.getValue(),
+					RtsCommandPage.FARM, new Area(RtsOrderHintClient::irrigate, RtsOrdersClient::sendIrrigate,
+							area -> Optional.ofNullable(RtsOrdersClient.irrigateProblem(area)), true),
+					Optional.of(RtsTaskKind.IRRIGATE)));
 
 	/** {@link #COMMANDS} sorted into bar pages; fails at class load if a page is overfull. */
 	public static final RtsCommandPages<RtsCommand> PAGES = new RtsCommandPages<>(COMMANDS, RtsCommand::page);

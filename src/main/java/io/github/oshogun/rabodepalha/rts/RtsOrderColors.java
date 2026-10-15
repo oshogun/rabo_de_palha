@@ -28,6 +28,8 @@ public final class RtsOrderColors {
 			case PLANT -> 0xFF9AD82E;
 			case HARVEST -> 0xFFE8C030;
 			case TEND -> 0xFF3CC88C;
+			// Water blue, deeper than the dig area's.
+			case IRRIGATE -> 0xFF2E5CE8;
 			case OTHER -> 0xFFFFFFFF;
 		};
 	}

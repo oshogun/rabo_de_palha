@@ -230,6 +230,38 @@ class TaskCodecTest {
 	}
 
 	@Test
+	void irrigateRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			IrrigateTask field = assertInstanceOf(IrrigateTask.class,
+					roundTrip(ops, new IrrigateTask(new BlockPos(4, 70, -2), new BlockPos(1, 68, -5), Items.WHEAT_SEEDS)));
+			assertEquals(new BlockPos(4, 70, -2), field.from());
+			assertEquals(new BlockPos(1, 68, -5), field.to());
+			assertEquals(Items.WHEAT_SEEDS, field.seed());
+			assertFalse(field.isPlot());
+
+			IrrigateTask plot = assertInstanceOf(IrrigateTask.class,
+					roundTrip(ops, new IrrigateTask(new BlockPos(4, 70, -2), new BlockPos(4, 70, -2), Items.CARROT)));
+			assertTrue(plot.isPlot());
+			assertEquals(Items.CARROT, plot.seed());
+		}
+	}
+
+	@Test
+	void irrigateNeedsAFarmlandSeedAndAFieldUnderTheCap() {
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, irrigateJson(BlockPos.ZERO, "minecraft:wheat_seeds")).isSuccess());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, irrigateJson(new BlockPos(31, 16, 31), "minecraft:wheat_seeds")).isSuccess());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, irrigateJson(new BlockPos(32, 0, 31), "minecraft:wheat_seeds")).isError());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, irrigateJson(new BlockPos(1, 0, 1), "minecraft:nether_wart")).isError());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, irrigateJson(new BlockPos(1, 0, 1), "minecraft:stick")).isError());
+	}
+
+	private static JsonObject irrigateJson(BlockPos to, String seed) {
+		JsonObject json = plantFieldJson(to, seed);
+		json.addProperty("type", IrrigateTask.TYPE_ID);
+		return json;
+	}
+
+	@Test
 	void harvestAreaRoundTrips() {
 		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
 			HarvestAreaTask task = assertInstanceOf(HarvestAreaTask.class,

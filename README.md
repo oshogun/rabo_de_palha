@@ -23,6 +23,8 @@ commanded that worker.
 /rdp build <origin> <blueprint> [rotation] [workers]
 /rdp plant <from> <to> <seed> [workers]
 /rdp harvest <from> <to> [workers]
+/rdp irrigate <pos> <seed> [workers]
+/rdp irrigate <from> <to> <seed> [workers]
 /rdp tend <from> <to> [container] [workers]
 /rdp queue [workers]
 /rdp clear [workers]
@@ -65,6 +67,19 @@ bushes older than age 1 are picked and reset to age 1. Torchflowers, pitcher pla
 saplings are out of scope. When the inventory can't hold a plant's drops the task fails with a
 partial result (`harvested 30, inventory full`) and leaves that plant standing. The report gives
 harvested, replanted and unripe counts.
+
+`irrigate` digs water holes, fills them and then plants the wet area with `plant`'s rules and
+caps (the seed must be a farmland one, not nether wart). With one `pos` it digs that block, fills
+it from a water bucket (getting the empty bucket back) and plants the 9×9 square around it. With
+`from` and `to` it places the fewest holes that put every block of the field within reach of water
+(farmland is wet with water within 4 blocks horizontally, at its level or one above), one per 9×9
+square where it can; ground already near water needs no hole. A hole is only dug where solid
+blocks sit below and on all four sides at its level, and never near lava; other spots are moved
+or skipped (and reported as dry), so the worker never floods the area. Water comes from the buckets
+it carries; with only empty ones it walks to the nearest water source within 24 blocks and fills
+them, preferring sources that refill, and never takes water from its own holes. With no bucket it
+fails with `needs a bucket`, and with no water in range with `no water within 24 blocks`, both
+before digging. Holes already filled stay filled if it runs out of seeds or hoes.
 
 `tend` is the first repeating order: it tends the same field rectangle until stopped. Each round
 the worker harvests and replants ripe plants, plants empty farmland when it has seeds, re-tills
@@ -159,6 +174,11 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
     pick. Release to harvest (hold `Shift` when releasing to queue it after the current orders);
     right-click or `Esc` cancels. The overlay boxes each ripe plant in green (a stalk from its base
     to its top); unripe plants are not marked. The field turns red over the same caps as Plant.
+  - Irrigate (Farm page; no default key, bind `Irrigate` in the controls) digs water holes and
+    plants the wet area. Pick the seed first, then left-click a block for a 9×9 plot or left-drag
+    a field like Plant. Release to order (`Shift` queues it); right-click or `Esc` cancels. The
+    overlay shows the planned holes in blue and the area they keep wet in a light tint; the field
+    turns red over Plant's caps.
   - Tend (Farm page; no default key, bind `Tend` in the controls) tends a field until stopped.
     Left-drag the rectangle like Harvest, then left-click a container to deposit produce into, or
     press `Enter` to skip it. `Shift` when releasing the drag queues it after the current orders;

@@ -121,6 +121,24 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void irrigateFieldNamesSeedAndTargetsBothCorners() {
+		TaskSummary summary = TaskTypes.summarize(new IrrigateTask(POS, OTHER, Items.WHEAT_SEEDS));
+		assertSummary(summary, "rabodepalha.task.irrigate",
+				List.of(Component.translatable(Items.WHEAT_SEEDS.getDescriptionId()), literal(POS), literal(OTHER)),
+				List.of(POS, OTHER));
+	}
+
+	@Test
+	void irrigatePlotTargetsItsSquare() {
+		BlockPos min = POS.offset(-4, 0, -4);
+		BlockPos max = POS.offset(4, 0, 4);
+		TaskSummary summary = TaskTypes.summarize(new IrrigateTask(POS, POS, Items.CARROT));
+		assertSummary(summary, "rabodepalha.task.irrigate",
+				List.of(Component.translatable(Items.CARROT.getDescriptionId()), literal(min), literal(max)),
+				List.of(min, max));
+	}
+
+	@Test
 	void harvestAreaTargetsBothCorners() {
 		TaskSummary summary = TaskTypes.summarize(new HarvestAreaTask(POS, OTHER));
 		assertSummary(summary, "rabodepalha.task.harvest_area", List.of(literal(POS), literal(OTHER)), List.of(POS, OTHER));

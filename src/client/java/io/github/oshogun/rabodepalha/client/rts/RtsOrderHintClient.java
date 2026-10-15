@@ -129,6 +129,23 @@ public final class RtsOrderHintClient {
 	}
 
 	/**
+	 * Irrigate armed and no plot or field started yet: the same as {@link #plant}, with a seed that grows on
+	 * farmland. The plot or field is checked by {@link RtsOrdersClient#irrigateProblem} once it exists.
+	 */
+	public static RtsOrderHint.Hint irrigate(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (hover.block() == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		if (!RtsItemPickClient.picked().map(RtsOrdersClient::isFarmlandSeed).orElse(false)) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.irrigate.hint.pick_seed", false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.irrigate.hint.start", true, null);
+	}
+
+	/**
 	 * Harvest armed and no field started yet: it needs a selection and a block under the cursor. The field itself
 	 * is checked by {@link RtsOrdersClient#harvestProblem} once it exists. The hint has no kind and uses its key as
 	 * is.

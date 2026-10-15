@@ -11,6 +11,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -24,6 +25,7 @@ import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsHarvestPayload;
+import io.github.oshogun.rabodepalha.network.RtsIrrigatePayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
@@ -39,6 +41,7 @@ import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
+import io.github.oshogun.rabodepalha.worker.task.IrrigationBlocks;
 
 /**
  * Client side of RTS orders. An order sends the clicked block and face for the selected workers; the server
@@ -227,15 +230,68 @@ public final class RtsOrdersClient {
 		return fieldProblem(area, false);
 	}
 
+	/**
+	 * Irrigates the plot or field marked by {@code area} with the seed picked in the panel and the selected workers. A
+	 * click (a 1×1 area) is a plot, sent with both corners on the clicked block like {@code /rdp irrigate <pos> <seed>
+	 * [workers]}; a drag is a field, like {@code /rdp irrigate <from> <to> <seed> [workers]}. The caller has checked
+	 * {@link #irrigateProblem}; the server repeats every check.
+	 */
+	public static void sendIrrigate(RtsDigArea area, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		Optional<Identifier> seed = RtsItemPickClient.picked();
+		if (seed.isEmpty()) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.not_a_seed"));
+			return;
+		}
+		BlockPos from = new BlockPos(area.minX(), area.minY(), area.minZ());
+		BlockPos to = isPlot(area) ? from : new BlockPos(area.maxX(), area.maxY(), area.maxZ());
+		if (ClientPlayNetworking.canSend(RtsIrrigatePayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsIrrigatePayload(RtsSelectionClient.selectedIds(), from, to, seed.get(),
+					shift));
+		}
+	}
+
+	/**
+	 * Why the server would reject irrigating {@code area}, or {@code null} when the client sees no problem. A plot is
+	 * checked as the 9×9 square around the clicked block; the picked seed must grow on farmland.
+	 */
+	public static @Nullable Component irrigateProblem(RtsDigArea area) {
+		return fieldProblem(area, irrigateField(area), true, true);
+	}
+
+	/** The field {@code area} irrigates: the 9×9 plot around a clicked block, or the dragged field. */
+	public static RtsField irrigateField(RtsDigArea area) {
+		return isPlot(area) ? IrrigationBlocks.plotField(new BlockPos(area.minX(), area.minY(), area.minZ()))
+				: RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+	}
+
+	/** Whether {@code area} is a single clicked block, which irrigates as a plot. */
+	private static boolean isPlot(RtsDigArea area) {
+		return area.minX() == area.maxX() && area.minY() == area.maxY() && area.minZ() == area.maxZ();
+	}
+
 	/** The field checks shared by Plant, Harvest and Tend, in the server's order; the seed is checked only for Plant. */
 	private static @Nullable Component fieldProblem(RtsDigArea area, boolean needsSeed) {
+		return fieldProblem(area,
+				RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ()), needsSeed,
+				false);
+	}
+
+	/**
+	 * The field checks over {@code field}, with the reach checked over the picked corners of {@code area}, as the
+	 * server does. With {@code needsFarmland} the seed must also grow on farmland (Irrigate).
+	 */
+	private static @Nullable Component fieldProblem(RtsDigArea area, RtsField field, boolean needsSeed,
+			boolean needsFarmland) {
 		Minecraft client = Minecraft.getInstance();
 		LocalPlayer player = client.player;
 		ClientLevel level = client.level;
 		if (player == null || level == null) {
 			return Component.translatable("rabodepalha.rts.order.not_loaded");
 		}
-		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
 		if (level.isOutsideBuildHeight(field.bottomY()) || level.isOutsideBuildHeight(field.topY())) {
 			return Component.translatable("rabodepalha.rts.order.area_out_of_world");
 		}
@@ -244,6 +300,9 @@ public final class RtsOrdersClient {
 		}
 		if (needsSeed && !RtsItemPickClient.picked().map(FieldBlocks::isSeed).orElse(false)) {
 			return Component.translatable("rabodepalha.rts.order.not_a_seed");
+		}
+		if (needsFarmland && !RtsItemPickClient.picked().map(RtsOrdersClient::isFarmlandSeed).orElse(false)) {
+			return Component.translatable("rabodepalha.rts.order.not_a_farmland_seed");
 		}
 		Vec3 eye = player.getEyePosition();
 		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z)
@@ -260,6 +319,12 @@ public final class RtsOrdersClient {
 			}
 		}
 		return null;
+	}
+
+	/** Whether {@code item} is a seed that grows on farmland, the only kind an irrigated field takes. */
+	public static boolean isFarmlandSeed(Identifier item) {
+		return FieldBlocks.isSeed(item)
+				&& FieldBlocks.soilOf(BuiltInRegistries.ITEM.getValue(item)) == FieldBlocks.Soil.FARMLAND;
 	}
 
 	/** Asks the server for the blueprint list; the reply fills the picker. */

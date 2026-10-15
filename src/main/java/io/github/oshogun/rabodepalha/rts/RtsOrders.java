@@ -19,6 +19,7 @@ import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsHarvestPayload;
+import io.github.oshogun.rabodepalha.network.RtsIrrigatePayload;
 import io.github.oshogun.rabodepalha.network.RtsTendPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
@@ -39,6 +40,8 @@ import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 import io.github.oshogun.rabodepalha.worker.task.HarvestAreaTask;
+import io.github.oshogun.rabodepalha.worker.task.IrrigateTask;
+import io.github.oshogun.rabodepalha.worker.task.IrrigationBlocks;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -165,6 +168,28 @@ public final class RtsOrders {
 	public static Result handlePlant(ServerPlayer player, RtsPlantPayload payload, PermissionSet permissions,
 			double maxTargetDistance, double maxWorkerDistance) {
 		return sendFeedback(player, applyPlant(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's irrigate order. */
+	public static Result handleIrrigate(ServerPlayer player, RtsIrrigatePayload payload) {
+		return handleIrrigate(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker an {@link IrrigateTask} over the payload's plot or field, like {@code /rdp irrigate
+	 * <pos> <seed> [workers]} or {@code /rdp irrigate <from> <to> <seed> [workers]}, then sends the feedback. The
+	 * whole order is rejected when the field (the 9×9 square around a plot) has its window outside the world, is
+	 * over {@link RtsField#MAX_COLUMNS} columns or {@link RtsField#MAX_RISE} rise, the item is not a seed that grows
+	 * on farmland, or the field is too far from the player's eyes or not loaded.
+	 */
+	public static Result handleIrrigate(ServerPlayer player, RtsIrrigatePayload payload, PermissionSet permissions) {
+		return handleIrrigate(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleIrrigate(ServerPlayer, RtsIrrigatePayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleIrrigate(ServerPlayer player, RtsIrrigatePayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyIrrigate(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
 	}
 
 	/** Entry point for the client's harvest order. */
@@ -587,6 +612,53 @@ public final class RtsOrders {
 				payload.append() ? "rabodepalha.rts.order.plant_queued" : "rabodepalha.rts.order.plant_replaced",
 				Component.translatable(seed.getDescriptionId()), field.sizeX(), field.sizeZ(), workers.valid().size());
 		return assign(player, workers, payload.append(), () -> new PlantFieldTask(from, to, seed), applied);
+	}
+
+	private static Result applyIrrigate(ServerPlayer player, RtsIrrigatePayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+
+		ServerLevel level = player.level();
+		BlockPos from = payload.from().immutable();
+		BlockPos to = payload.to().immutable();
+		// A plot (from == to) covers the 9×9 square its hole keeps wet.
+		RtsField field = from.equals(to) ? IrrigationBlocks.plotField(from)
+				: RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		Result boundsProblem = checkFieldBounds(level, field);
+		if (boundsProblem != null) {
+			return boundsProblem;
+		}
+		if (!FieldBlocks.isSeed(payload.seed())) {
+			return reject("rabodepalha.rts.order.not_a_seed");
+		}
+		Item seed = BuiltInRegistries.ITEM.getValue(payload.seed());
+		if (FieldBlocks.soilOf(seed) != FieldBlocks.Soil.FARMLAND) {
+			return reject("rabodepalha.rts.order.not_a_farmland_seed");
+		}
+		// The picked corners, which is what the client's pick range checks.
+		RtsDigArea area = RtsDigArea.between(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		Result reachProblem = checkFieldReach(player, level, field, area, maxTargetDistance);
+		if (reachProblem != null) {
+			return reachProblem;
+		}
+
+		Workers workers = resolveWorkers(level, ids, new Vec3(area.centerX(), area.centerY(), area.centerZ()),
+				maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		// Args: seed name, size x, size z, worker count.
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.irrigate_queued" : "rabodepalha.rts.order.irrigate_replaced",
+				Component.translatable(seed.getDescriptionId()), field.sizeX(), field.sizeZ(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new IrrigateTask(from, to, seed), applied);
 	}
 
 	private static Result applyHarvest(ServerPlayer player, RtsHarvestPayload payload, PermissionSet permissions,

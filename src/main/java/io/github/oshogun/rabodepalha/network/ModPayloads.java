@@ -18,6 +18,7 @@ public final class ModPayloads {
 		PayloadTypeRegistry.serverboundPlay().register(RtsSpawnPayload.TYPE, RtsSpawnPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsDigPayload.TYPE, RtsDigPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsPlantPayload.TYPE, RtsPlantPayload.STREAM_CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RtsIrrigatePayload.TYPE, RtsIrrigatePayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsHarvestPayload.TYPE, RtsHarvestPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsTendPayload.TYPE, RtsTendPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(RtsWatchPayload.TYPE, RtsWatchPayload.STREAM_CODEC);
@@ -53,6 +54,8 @@ public final class ModPayloads {
 				(payload, context) -> RtsOrders.handleDig(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsPlantPayload.TYPE,
 				(payload, context) -> RtsOrders.handlePlant(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(RtsIrrigatePayload.TYPE,
+				(payload, context) -> RtsOrders.handleIrrigate(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsHarvestPayload.TYPE,
 				(payload, context) -> RtsOrders.handleHarvest(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(RtsTendPayload.TYPE,

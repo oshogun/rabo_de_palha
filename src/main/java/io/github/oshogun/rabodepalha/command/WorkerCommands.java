@@ -12,6 +12,8 @@ import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 import io.github.oshogun.rabodepalha.worker.task.HarvestAreaTask;
+import io.github.oshogun.rabodepalha.worker.task.IrrigateTask;
+import io.github.oshogun.rabodepalha.worker.task.IrrigationBlocks;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -119,6 +121,15 @@ public final class WorkerCommands {
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(Commands.argument("to", BlockPosArgument.blockPos())
 										.then(withWorkers(Commands.argument("seed", ItemArgument.item(buildContext)), WorkerCommands::plant)))))
+				// "irrigate <pos> <seed>" is a plot, "irrigate <from> <to> <seed>" a field. A coordinate never
+				// parses as a known item, so brigadier tells the two apart by the token after <pos>.
+				.then(Commands.literal("irrigate")
+						.then(Commands.argument("pos", BlockPosArgument.blockPos())
+								.then(Commands.argument("to", BlockPosArgument.blockPos())
+										.then(withWorkers(Commands.argument("seed", ItemArgument.item(buildContext)),
+												(ctx, workers) -> irrigate(ctx, workers, BlockPosArgument.getLoadedBlockPos(ctx, "to")))))
+								.then(withWorkers(Commands.argument("seed", ItemArgument.item(buildContext)),
+										(ctx, workers) -> irrigate(ctx, workers, BlockPosArgument.getLoadedBlockPos(ctx, "pos"))))))
 				.then(Commands.literal("harvest")
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::harvest))))
@@ -328,6 +339,24 @@ public final class WorkerCommands {
 		}
 		Item seed = ItemArgument.getItem(ctx, "seed").item().value();
 		return enqueue(ctx, workers, () -> new PlantFieldTask(from, to, seed));
+	}
+
+	/** A plot when {@code to} is the clicked {@code pos}: the 9×9 square around it; otherwise the field between them. */
+	private static int irrigate(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, BlockPos to)
+			throws CommandSyntaxException {
+		BlockPos from = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+		Identifier seedId = itemId(ctx, "seed");
+		Item seed = ItemArgument.getItem(ctx, "seed").item().value();
+		if (FieldBlocks.soilOf(seed) != FieldBlocks.Soil.FARMLAND) {
+			throw NOT_A_SEED.create(seedId);
+		}
+		RtsField field = from.equals(to)
+				? IrrigationBlocks.plotField(from)
+				: RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			throw FIELD_TOO_LARGE.create(field.label() + " columns, " + field.rise() + " rise");
+		}
+		return enqueue(ctx, workers, () -> new IrrigateTask(from, to, seed));
 	}
 
 	private static int harvest(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) throws CommandSyntaxException {

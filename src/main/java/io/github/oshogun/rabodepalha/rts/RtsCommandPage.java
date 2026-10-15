@@ -6,7 +6,7 @@ package io.github.oshogun.rabodepalha.rts;
  * pages below can be declared before their commands land.
  *
  * <p>Where the environment commands are expected to go, each card picking the final page under the
- * {@link #MAX_SLOTS} cap: {@link #FARM} gets plant, harvest, tend, fertilize, compost, ranch, bucket and fish;
+ * {@link #MAX_SLOTS} cap: {@link #FARM} gets plant, harvest, tend, irrigate, fertilize, compost, ranch, bucket and fish;
  * {@link #GATHER} gets fell, vein, collect and use; {@link #MAKE} gets smelt, craft, sort and storage;
  * {@link #WORKER} gets stance and home.
  */

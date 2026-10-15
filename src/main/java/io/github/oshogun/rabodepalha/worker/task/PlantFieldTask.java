@@ -4,9 +4,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.oshogun.rabodepalha.rts.RtsField;
+import io.github.oshogun.rabodepalha.rts.RtsIrrigation;
 import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
@@ -49,6 +51,7 @@ public final class PlantFieldTask implements Task<WorkerEntity> {
 	private final BlockPos to;
 	private final Item seed;
 	private final RtsField field;
+	private final Set<Long> ignoredColumns;
 
 	private final Deque<BlockPos> queue = new ArrayDeque<>();
 	private final List<Skip> skipped = new ArrayList<>();
@@ -60,10 +63,19 @@ public final class PlantFieldTask implements Task<WorkerEntity> {
 	private int cleared;
 
 	public PlantFieldTask(BlockPos from, BlockPos to, Item seed) {
+		this(from, to, seed, Set.of());
+	}
+
+	/**
+	 * A field job that leaves out the columns in {@code ignoredColumns}, keyed by {@link RtsIrrigation#key}:
+	 * they are neither planted nor listed as skipped. Used for the water holes of an irrigated field.
+	 */
+	PlantFieldTask(BlockPos from, BlockPos to, Item seed, Set<Long> ignoredColumns) {
 		this.from = from.immutable();
 		this.to = to.immutable();
 		this.seed = seed;
 		this.field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		this.ignoredColumns = Set.copyOf(ignoredColumns);
 	}
 
 	public BlockPos from() {
@@ -89,6 +101,9 @@ public final class PlantFieldTask implements Task<WorkerEntity> {
 		cleared = 0;
 		Level level = worker.level();
 		for (int[] column : field.columnOrder()) {
+			if (ignoredColumns.contains(RtsIrrigation.key(column[0], column[1]))) {
+				continue;
+			}
 			BlockPos ground = FieldBlocks.surface(level, field, column[0], column[1]);
 			if (ground == null) {
 				skipped.add(new Skip(column[0] + ", " + column[1], "no ground"));

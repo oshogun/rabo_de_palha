@@ -26,7 +26,7 @@ class RtsOrderColorsTest {
 		Set<Integer> colours = new HashSet<>();
 		for (RtsTaskKind kind : List.of(RtsTaskKind.MOVE, RtsTaskKind.MINE, RtsTaskKind.PLACE, RtsTaskKind.DIG,
 				RtsTaskKind.BUILD, RtsTaskKind.DEPOSIT, RtsTaskKind.WITHDRAW, RtsTaskKind.USE, RtsTaskKind.PLANT, RtsTaskKind.HARVEST,
-				RtsTaskKind.TEND, RtsTaskKind.OTHER)) {
+				RtsTaskKind.TEND, RtsTaskKind.IRRIGATE, RtsTaskKind.OTHER)) {
 			assertTrue(colours.add(RtsOrderColors.line(kind)), kind + " shares a colour");
 		}
 	}

@@ -124,6 +124,26 @@ public final class TaskTypes {
 					itemName(BuiltInRegistries.ITEM.getKey(task.seed())), pos(task.from()), pos(task.to())),
 					List.of(task.from(), task.to())));
 
+	/**
+	 * Only the corners and the seed: progress is not saved, a loaded task plans the holes again and counts
+	 * the ones already filled as water. Both corners are the clicked block for a plot; the summary targets
+	 * the field's corners, a plot's 9×9 square included.
+	 */
+	public static final MapCodec<IrrigateTask> IRRIGATE = register(IrrigateTask.TYPE_ID, IrrigateTask.class,
+			RecordCodecBuilder.<IrrigateTask>mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("from").forGetter(IrrigateTask::from),
+					BlockPos.CODEC.fieldOf("to").forGetter(IrrigateTask::to),
+					ITEM_CODEC.fieldOf("seed").forGetter(IrrigateTask::seed)
+			).apply(instance, IrrigateTask::new)).validate(TaskTypes::validateIrrigate),
+			(task, sizes) -> {
+				// The field's columns at the clicked heights; its y band has a search margin added.
+				RtsField field = task.field();
+				BlockPos min = new BlockPos(field.minX(), Math.min(task.from().getY(), task.to().getY()), field.minZ());
+				BlockPos max = new BlockPos(field.maxX(), Math.max(task.from().getY(), task.to().getY()), field.maxZ());
+				return new TaskSummary(KEY_PREFIX + "irrigate", List.of(
+						itemName(BuiltInRegistries.ITEM.getKey(task.seed())), pos(min), pos(max)), List.of(min, max));
+			});
+
 	/** Only the corners: progress is not saved, a loaded task scans the field again. */
 	public static final MapCodec<HarvestAreaTask> HARVEST_AREA = register(HarvestAreaTask.TYPE_ID, HarvestAreaTask.class,
 			RecordCodecBuilder.<HarvestAreaTask>mapCodec(instance -> instance.group(
@@ -227,9 +247,24 @@ public final class TaskTypes {
 				.orElseGet(() -> DataResult.success(task));
 	}
 
+	/** A plot is checked as its 9×9 square, and the seed must grow on farmland, which is what holes water. */
+	private static DataResult<IrrigateTask> validateIrrigate(IrrigateTask task) {
+		Optional<String> fieldError = validateField(task.field());
+		if (fieldError.isPresent()) {
+			return DataResult.error(fieldError::get);
+		}
+		if (FieldBlocks.soilOf(task.seed()) != FieldBlocks.Soil.FARMLAND) {
+			return DataResult.error(() -> BuiltInRegistries.ITEM.getKey(task.seed()) + " is not a farmland seed");
+		}
+		return DataResult.success(task);
+	}
+
 	/** The error for a field over the {@link RtsField} cap, if it is. */
 	private static Optional<String> validateField(BlockPos from, BlockPos to) {
-		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		return validateField(RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ()));
+	}
+
+	private static Optional<String> validateField(RtsField field) {
 		if (field.exceeds()) {
 			return Optional.of("Field of " + field.columns() + " columns and rise " + field.rise()
 					+ " exceeds " + RtsField.MAX_COLUMNS + " columns or rise " + RtsField.MAX_RISE);

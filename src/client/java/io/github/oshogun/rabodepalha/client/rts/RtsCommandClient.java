@@ -369,6 +369,11 @@ public final class RtsCommandClient {
 		return flatArea(RtsCommands.TEND);
 	}
 
+	/** The flat area being dragged for Irrigate, between the two picked blocks (one block for a plot), or null. */
+	public static @Nullable RtsDigArea irrigateArea() {
+		return flatArea(RtsCommands.IRRIGATE);
+	}
+
 	/** The Tend field marked and waiting for its container, or null. */
 	public static @Nullable RtsDigArea pendingTendArea() {
 		RtsCommands.RtsCommand command = STATE.armed();
