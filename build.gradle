@@ -17,6 +17,11 @@ repositories {
 	}
 }
 
+configurations {
+	// Sodium as a mod for the sodiumTest task only.
+	sodiumTestRuntime
+}
+
 loom {
 	splitEnvironmentSourceSets()
 
@@ -46,10 +51,48 @@ dependencies {
 	// JUnit 5 unit tests, run on Fabric Loader's classpath so Minecraft classes are usable.
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+	// The client classes and mixin configs, so ClientMixinApplyTest can apply the client mixins. The
+	// client-only Minecraft jar is already on the test runtime classpath through Loom.
+	testRuntimeOnly sourceSets.client.output
+
+	sodiumTestRuntime "maven.modrinth:sodium:${project.sodium_version}"
+}
+
+configurations {
+	// Keep Sodium (e.g. from -PwithSodium) off the plain test run, so it proves the vanilla path.
+	testRuntimeClasspath {
+		exclude group: 'maven.modrinth', module: 'sodium'
+	}
 }
 
 test {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'sodium'
+	}
+}
+
+// Same tests with Sodium loaded as a mod, to apply the Sodium mixins. Sodium stays optional for the mod.
+def sodiumTest = tasks.register('sodiumTest', Test) {
+	group = 'verification'
+	description = 'Applies the client mixins with Sodium loaded.'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath + configurations.sodiumTestRuntime
+	useJUnitPlatform {
+		includeTags 'sodium'
+	}
+	// Loom sets fabric.classPathGroups on `test` only; without it Knot sees main and client as two mods.
+	systemProperty 'fabric.classPathGroups', [sourceSets.main, sourceSets.client]
+		.collectMany { [it.output.classesDirs.files, it.output.resourcesDir].flatten() }
+		.join(File.pathSeparator)
+	// Sodium writes config/ into the working directory; keep it out of the project root.
+	def runDir = layout.buildDirectory.dir('sodiumTest').get().asFile
+	workingDir = runDir
+	doFirst { runDir.mkdirs() }
+	shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+	dependsOn sodiumTest
 }
 
 // Server-side Fabric GameTests live in the "gametest" source set (src/gametest) as a separate test mod.

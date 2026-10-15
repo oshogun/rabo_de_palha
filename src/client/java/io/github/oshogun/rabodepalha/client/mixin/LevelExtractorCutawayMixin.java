@@ -40,7 +40,8 @@ abstract class LevelExtractorCutawayMixin {
 		this.levelRenderer.nearbyVisibleSections().removeIf(section -> rabodepalha$inside(region, section));
 	}
 
-	@WrapOperation(method = "extract", at = @At(value = "NEW", target = "Lnet/minecraft/client/renderer/culling/Frustum;<init>(Lnet/minecraft/client/renderer/culling/Frustum;)V"))
+	// NEW targets take the "(args)Ltype;" form: with a "<init>(...)V" descriptor Mixin looks for "NEW V".
+	@WrapOperation(method = "extract", at = @At(value = "NEW", target = "(Lnet/minecraft/client/renderer/culling/Frustum;)Lnet/minecraft/client/renderer/culling/Frustum;"))
 	private Frustum rabodepalha$cutParticles(Frustum frustum, Operation<Frustum> original) {
 		CutawayRegion region = Cutaway.current();
 		if (!region.active()) {
