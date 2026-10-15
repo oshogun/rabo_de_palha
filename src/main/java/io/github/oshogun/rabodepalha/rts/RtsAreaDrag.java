@@ -4,8 +4,9 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The input state of marking a dig area in RTS mode: press on a block, drag to the opposite corner,
- * release, then set the depth with the scroll wheel and confirm. It holds no Minecraft types so it
- * can be unit-tested.
+ * release, then set the depth with the scroll wheel and confirm. A flat drag (a field to plant) skips
+ * the depth step: release fixes the rectangle between the two corners. It holds no Minecraft types so
+ * it can be unit-tested.
  */
 public final class RtsAreaDrag {
 	public enum Phase {
@@ -14,13 +15,16 @@ public final class RtsAreaDrag {
 		/** The mouse is held and the opposite corner follows the cursor. */
 		DRAGGING,
 		/** The rectangle is fixed and the scroll wheel sets the depth. */
-		DEPTH
+		DEPTH,
+		/** A flat drag was released: the area between the corners is fixed and waits to be confirmed. */
+		FIXED
 	}
 
 	private Phase phase = Phase.IDLE;
 	private int ax, ay, az;
 	private int bx, by, bz;
 	private int depth = 1;
+	private boolean flat;
 
 	public Phase phase() {
 		return phase;
@@ -31,11 +35,25 @@ public final class RtsAreaDrag {
 		return depth;
 	}
 
-	/** Starts a new area at the pressed block. Only acts in {@link Phase#IDLE}. */
+	/** Whether the area being marked is flat, with no depth step. */
+	public boolean flat() {
+		return flat;
+	}
+
+	/** Starts a new area with a depth step at the pressed block. Only acts in {@link Phase#IDLE}. */
 	public void press(int x, int y, int z) {
+		press(x, y, z, false);
+	}
+
+	/**
+	 * Starts a new area at the pressed block. A {@code flat} area has no depth step: it spans the two
+	 * corners and {@link #release()} fixes it. Only acts in {@link Phase#IDLE}.
+	 */
+	public void press(int x, int y, int z, boolean flat) {
 		if (phase != Phase.IDLE) {
 			return;
 		}
+		this.flat = flat;
 		ax = bx = x;
 		ay = by = y;
 		az = bz = z;
@@ -53,12 +71,16 @@ public final class RtsAreaDrag {
 	}
 
 	/**
-	 * Fixes the rectangle and enters the depth step, starting deep enough to reach the lower corner.
-	 * Returns whether a drag was released.
+	 * Fixes the rectangle and enters the depth step, starting deep enough to reach the lower corner; a
+	 * flat area goes to {@link Phase#FIXED} instead. Returns whether a drag was released.
 	 */
 	public boolean release() {
 		if (phase != Phase.DRAGGING) {
 			return false;
+		}
+		if (flat) {
+			phase = Phase.FIXED;
+			return true;
 		}
 		depth = RtsDigArea.initialDepth(ay, by);
 		phase = Phase.DEPTH;
@@ -83,16 +105,24 @@ public final class RtsAreaDrag {
 
 	/** The area being marked, or {@code null} in {@link Phase#IDLE}. */
 	public @Nullable RtsDigArea area() {
+		if (phase == Phase.IDLE) {
+			return null;
+		}
+		if (flat) {
+			return RtsDigArea.between(ax, ay, az, bx, by, bz);
+		}
 		return switch (phase) {
-			case IDLE -> null;
 			case DRAGGING -> RtsDigArea.of(ax, ay, az, bx, by, bz, RtsDigArea.initialDepth(ay, by));
-			case DEPTH -> RtsDigArea.of(ax, ay, az, bx, by, bz, depth);
+			default -> RtsDigArea.of(ax, ay, az, bx, by, bz, depth);
 		};
 	}
 
-	/** Finishes the depth step and returns the area, or returns {@code null} outside {@link Phase#DEPTH}. */
+	/**
+	 * Finishes the depth step, or a released flat area, and returns the area. Returns {@code null}
+	 * outside {@link Phase#DEPTH} and {@link Phase#FIXED}.
+	 */
 	public @Nullable RtsDigArea confirm() {
-		if (phase != Phase.DEPTH) {
+		if (phase != Phase.DEPTH && phase != Phase.FIXED) {
 			return null;
 		}
 		RtsDigArea area = area();

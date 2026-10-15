@@ -25,6 +25,7 @@ public final class RtsOrderColors {
 			case DEPOSIT -> 0xFFD8C878;
 			case WITHDRAW -> 0xFFB8A858;
 			case USE -> 0xFFFF5AC8;
+			case PLANT -> 0xFF9AD82E;
 			case OTHER -> 0xFFFFFFFF;
 		};
 	}

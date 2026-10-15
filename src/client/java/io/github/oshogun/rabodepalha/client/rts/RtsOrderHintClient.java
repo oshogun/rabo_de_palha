@@ -22,6 +22,7 @@ import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
 import io.github.oshogun.rabodepalha.worker.Usables;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
+import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 
 /**
  * Client glue for {@link RtsOrderHint}: fills in the {@link RtsOrderHint.Target} from the cursor hover, the
@@ -107,6 +108,24 @@ public final class RtsOrderHintClient {
 			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
 		}
 		return new RtsOrderHint.Hint("rabodepalha.rts.dig.hint.start", true, null);
+	}
+
+	/**
+	 * Plant armed and no field started yet: it needs a selection, a block under the cursor and a seed picked in
+	 * the panel. The field itself is checked by {@link RtsOrdersClient#plantProblem} once it exists. The hint has
+	 * no kind and uses its key as is.
+	 */
+	public static RtsOrderHint.Hint plant(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (hover.block() == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		if (!RtsItemPickClient.picked().map(FieldBlocks::isSeed).orElse(false)) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.plant.hint.pick_seed", false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.plant.hint.start", true, null);
 	}
 
 	/**

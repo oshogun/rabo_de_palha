@@ -41,6 +41,7 @@ import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsCommandPage;
 import io.github.oshogun.rabodepalha.rts.RtsContainerPanel;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
+import io.github.oshogun.rabodepalha.rts.RtsField;
 import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsOrderColors;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
@@ -158,8 +159,11 @@ public final class RtsHud {
 		RtsBlueprintPicker.Hit pickerHit = hoveredPicker(client, picker);
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
 		RtsDigArea digArea = RtsCommandClient.digArea();
+		RtsDigArea plantArea = RtsCommandClient.plantArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
+		} else if (plantArea != null) {
+			extractPlantArea(graphics, client, plantArea, y);
 		} else if (hover != null && hovered == null && hoveredTab == null && panelHit instanceof RtsPanel.Hit.None
 				&& viewHit instanceof RtsContainerPanel.Hit.None && pickerHit instanceof RtsBlueprintPicker.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
@@ -617,8 +621,30 @@ public final class RtsHud {
 		if (armed != null) {
 			hint = Component.empty().append(armed.displayName()).append(": ").append(hint);
 		}
-		Component problem = RtsOrdersClient.digProblem(area);
-		Component label = Component.literal(area.label());
+		extractAreaLabel(graphics, client, area, area.label(), RtsOrdersClient.digProblem(area), hint, y);
+	}
+
+	/**
+	 * While a field is being dragged for Plant: the drag hint on the hint line, and the field's size and column
+	 * count above it like {@link #extractDigArea}, with the reason when the field is invalid.
+	 */
+	private static void extractPlantArea(GuiGraphicsExtractor graphics, Minecraft client, RtsDigArea area, int y) {
+		Component hint = Component.translatable("rabodepalha.rts.plant.hint.drag");
+		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+		if (armed != null) {
+			hint = Component.empty().append(armed.displayName()).append(": ").append(hint);
+		}
+		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+		extractAreaLabel(graphics, client, area, field.label(), RtsOrdersClient.plantProblem(area), hint, y);
+	}
+
+	/**
+	 * Draws {@code hint} on the hint line and {@code text}, plus {@code problem} if any, above the top centre of
+	 * {@code area}, or below the hint when that point is off-camera.
+	 */
+	private static void extractAreaLabel(GuiGraphicsExtractor graphics, Minecraft client, RtsDigArea area, String text,
+			@Nullable Component problem, Component hint, int y) {
+		Component label = Component.literal(text);
 		if (problem != null) {
 			label = Component.empty().append(label).append(" - ").append(problem);
 		}

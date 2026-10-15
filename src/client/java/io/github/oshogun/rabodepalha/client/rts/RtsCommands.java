@@ -65,13 +65,16 @@ public final class RtsCommands {
 
 	/**
 	 * Arms a mode that marks an area: drag a rectangle in the world, set the depth with the scroll wheel, then
-	 * left-click to fire it.
+	 * left-click to fire it. A flat area has no depth step and fires when the drag is released.
 	 *
 	 * @param hint whether and why an area can be started on a hover
 	 * @param fire carries the mode out on the marked area; the flag is Shift, which queues the order
+	 * @param problem why the server would reject the marked area, if the client sees a reason
+	 * @param flat whether the area is the rectangle between the two picked blocks, with no depth step
 	 */
 	public record Area(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
-			BiConsumer<RtsDigArea, Boolean> fire) implements Action {
+			BiConsumer<RtsDigArea, Boolean> fire, Function<RtsDigArea, Optional<Component>> problem,
+			boolean flat) implements Action {
 	}
 
 	/**
@@ -105,13 +108,17 @@ public final class RtsCommands {
 	public static final String BUILD = "build";
 	/** The place command's id. */
 	public static final String PLACE = "place";
+	/** The plant command's id. */
+	public static final String PLANT = "plant";
 
 	public static final List<RtsCommand> COMMANDS = List.of(
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
 			order("mine", () -> new ItemStack(Items.IRON_PICKAXE), InputConstants.KEY_B, RtsOrderKind.MINE),
 			order(PLACE, () -> new ItemStack(Items.STONE), InputConstants.KEY_V, RtsOrderKind.PLACE),
 			new RtsCommand("dig", () -> new ItemStack(Items.IRON_SHOVEL), InputConstants.KEY_C, RtsCommandPage.ORDERS,
-					new Area(RtsOrderHintClient::dig, RtsOrdersClient::sendDig), Optional.of(RtsTaskKind.DIG)),
+					new Area(RtsOrderHintClient::dig, RtsOrdersClient::sendDig,
+							area -> Optional.ofNullable(RtsOrdersClient.digProblem(area)), false),
+					Optional.of(RtsTaskKind.DIG)),
 			new RtsCommand("stop", () -> new ItemStack(Items.BARRIER), InputConstants.KEY_G, RtsCommandPage.GLOBAL,
 					new Instant(RtsOrdersClient::sendStop)),
 			new RtsCommand("spawn", () -> new ItemStack(Items.VILLAGER_SPAWN_EGG), InputConstants.KEY_N,
@@ -132,7 +139,12 @@ public final class RtsCommands {
 					}), Optional.of(RtsTaskKind.BUILD)),
 			// No default key: a plain right-click already uses levers and buttons.
 			order("use", () -> new ItemStack(Items.LEVER), InputConstants.UNKNOWN.getValue(), RtsCommandPage.GATHER,
-					RtsOrderKind.USE));
+					RtsOrderKind.USE),
+			// A flat drag over the field; the seed is the item picked in the panel.
+			new RtsCommand(PLANT, () -> new ItemStack(Items.WHEAT_SEEDS), InputConstants.UNKNOWN.getValue(),
+					RtsCommandPage.FARM, new Area(RtsOrderHintClient::plant, RtsOrdersClient::sendPlant,
+							area -> Optional.ofNullable(RtsOrdersClient.plantProblem(area)), true),
+					Optional.of(RtsTaskKind.PLANT)));
 
 	/** {@link #COMMANDS} sorted into bar pages; fails at class load if a page is overfull. */
 	public static final RtsCommandPages<RtsCommand> PAGES = new RtsCommandPages<>(COMMANDS, RtsCommand::page);

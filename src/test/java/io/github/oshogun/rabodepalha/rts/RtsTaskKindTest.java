@@ -22,17 +22,18 @@ class RtsTaskKindTest {
 
 	@Test
 	void everyTaskKeyMapsToItsKind() {
-		Map<String, RtsTaskKind> expected = Map.of(
-				"move_to", RtsTaskKind.MOVE,
-				"mine", RtsTaskKind.MINE,
-				"place", RtsTaskKind.PLACE,
-				"dig_area", RtsTaskKind.DIG,
-				"build", RtsTaskKind.BUILD,
-				"deposit", RtsTaskKind.DEPOSIT,
-				"deposit_item", RtsTaskKind.DEPOSIT,
-				"withdraw", RtsTaskKind.WITHDRAW,
-				"use", RtsTaskKind.USE,
-				"unknown", RtsTaskKind.OTHER);
+		Map<String, RtsTaskKind> expected = Map.ofEntries(
+				Map.entry("move_to", RtsTaskKind.MOVE),
+				Map.entry("mine", RtsTaskKind.MINE),
+				Map.entry("place", RtsTaskKind.PLACE),
+				Map.entry("dig_area", RtsTaskKind.DIG),
+				Map.entry("build", RtsTaskKind.BUILD),
+				Map.entry("deposit", RtsTaskKind.DEPOSIT),
+				Map.entry("deposit_item", RtsTaskKind.DEPOSIT),
+				Map.entry("withdraw", RtsTaskKind.WITHDRAW),
+				Map.entry("use", RtsTaskKind.USE),
+				Map.entry("plant_field", RtsTaskKind.PLANT),
+				Map.entry("unknown", RtsTaskKind.OTHER));
 		expected.forEach((suffix, kind) -> assertEquals(kind, RtsTaskKind.of(summary("rabodepalha.task." + suffix)), suffix));
 	}
 

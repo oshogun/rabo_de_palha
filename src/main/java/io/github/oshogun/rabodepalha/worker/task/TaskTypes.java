@@ -12,6 +12,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
+import io.github.oshogun.rabodepalha.rts.RtsField;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
@@ -106,6 +107,23 @@ public final class TaskTypes {
 			(task, sizes) -> new TaskSummary(KEY_PREFIX + "dig_area", List.of(pos(task.from()), pos(task.to())),
 					List.of(task.from(), task.to())));
 
+	/** An item by id; an unknown id is a decode error. */
+	private static final Codec<Item> ITEM_CODEC = Identifier.CODEC.comapFlatMap(
+			id -> BuiltInRegistries.ITEM.getOptional(id).map(DataResult::success)
+					.orElseGet(() -> DataResult.error(() -> "Unknown item: " + id)),
+			BuiltInRegistries.ITEM::getKey);
+
+	/** Only the corners and the seed: progress is not saved, a loaded task scans the field again. */
+	public static final MapCodec<PlantFieldTask> PLANT_FIELD = register(PlantFieldTask.TYPE_ID, PlantFieldTask.class,
+			RecordCodecBuilder.<PlantFieldTask>mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("from").forGetter(PlantFieldTask::from),
+					BlockPos.CODEC.fieldOf("to").forGetter(PlantFieldTask::to),
+					ITEM_CODEC.fieldOf("seed").forGetter(PlantFieldTask::seed)
+			).apply(instance, PlantFieldTask::new)).validate(TaskTypes::validatePlantField),
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "plant_field", List.of(
+					itemName(BuiltInRegistries.ITEM.getKey(task.seed())), pos(task.from()), pos(task.to())),
+					List.of(task.from(), task.to())));
+
 	/**
 	 * Only the parameters: progress is not saved, a loaded task plans the build again. The summary targets
 	 * the origin, then the footprint's min and max corners when the blueprint's size is known.
@@ -161,6 +179,20 @@ public final class TaskTypes {
 		BoundingBox box = BlueprintFootprint.box(task.origin(), size.get(), task.rotation());
 		return List.of(task.origin(), new BlockPos(box.minX(), box.minY(), box.minZ()),
 				new BlockPos(box.maxX(), box.maxY(), box.maxZ()));
+	}
+
+	private static DataResult<PlantFieldTask> validatePlantField(PlantFieldTask task) {
+		BlockPos from = task.from();
+		BlockPos to = task.to();
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			return DataResult.error(() -> "Field of " + field.columns() + " columns and rise " + field.rise()
+					+ " exceeds " + RtsField.MAX_COLUMNS + " columns or rise " + RtsField.MAX_RISE);
+		}
+		if (!FieldBlocks.isSeed(task.seed())) {
+			return DataResult.error(() -> BuiltInRegistries.ITEM.getKey(task.seed()) + " is not a seed");
+		}
+		return DataResult.success(task);
 	}
 
 	private static <T extends Task<WorkerEntity>> MapCodec<T> register(String typeId, Class<T> taskClass, MapCodec<T> codec,

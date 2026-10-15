@@ -16,6 +16,7 @@ public enum RtsTaskKind {
 	DEPOSIT,
 	WITHDRAW,
 	USE,
+	PLANT,
 	OTHER;
 
 	/** The kind of the summarised task; an unknown or malformed key is {@link #OTHER}. */
@@ -33,6 +34,7 @@ public enum RtsTaskKind {
 			case "deposit", "deposit_item" -> DEPOSIT;
 			case "withdraw" -> WITHDRAW;
 			case "use" -> USE;
+			case "plant_field" -> PLANT;
 			default -> OTHER;
 		};
 	}

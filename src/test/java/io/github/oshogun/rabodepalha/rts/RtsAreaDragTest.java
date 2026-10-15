@@ -145,6 +145,55 @@ class RtsAreaDragTest {
 	}
 
 	@Test
+	void flatReleaseFixesTheAreaBetweenTheCorners() {
+		RtsAreaDrag drag = new RtsAreaDrag();
+		drag.press(5, 64, 5, true);
+		assertTrue(drag.flat());
+		assertEquals(RtsAreaDrag.Phase.DRAGGING, drag.phase());
+		drag.drag(1, 60, 8);
+		assertEquals(new RtsDigArea(1, 60, 5, 5, 64, 8), drag.area());
+
+		assertTrue(drag.release());
+		assertEquals(RtsAreaDrag.Phase.FIXED, drag.phase());
+		assertEquals(new RtsDigArea(1, 60, 5, 5, 64, 8), drag.area());
+
+		assertFalse(drag.scroll(-1));
+		assertFalse(drag.scroll(1));
+		assertEquals(new RtsDigArea(1, 60, 5, 5, 64, 8), drag.area());
+
+		assertEquals(new RtsDigArea(1, 60, 5, 5, 64, 8), drag.confirm());
+		assertEquals(RtsAreaDrag.Phase.IDLE, drag.phase());
+		assertNull(drag.area());
+		assertNull(drag.confirm());
+	}
+
+	@Test
+	void cancelFromFixed() {
+		RtsAreaDrag drag = new RtsAreaDrag();
+		drag.press(0, 64, 0, true);
+		drag.release();
+
+		assertTrue(drag.cancel());
+		assertEquals(RtsAreaDrag.Phase.IDLE, drag.phase());
+		assertNull(drag.confirm());
+	}
+
+	@Test
+	void pressAfterFlatStartsADepthDrag() {
+		RtsAreaDrag drag = new RtsAreaDrag();
+		drag.press(0, 64, 0, true);
+		drag.cancel();
+
+		drag.press(0, 64, 0);
+		assertFalse(drag.flat());
+		drag.drag(3, 64, 2);
+		drag.release();
+		assertEquals(RtsAreaDrag.Phase.DEPTH, drag.phase());
+		assertTrue(drag.scroll(-1));
+		assertEquals(new RtsDigArea(0, 63, 0, 3, 64, 2), drag.confirm());
+	}
+
+	@Test
 	void dragAndPressIgnoredOutsideTheirPhase() {
 		RtsAreaDrag drag = released();
 		RtsDigArea before = drag.area();

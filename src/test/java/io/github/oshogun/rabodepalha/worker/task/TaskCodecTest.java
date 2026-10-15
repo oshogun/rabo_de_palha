@@ -25,6 +25,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.StairBlock;
@@ -181,6 +182,51 @@ class TaskCodecTest {
 		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, new BlockPos(16, 16, 16)).getOrThrow());
 
 		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
+	@Test
+	void plantFieldRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			PlantFieldTask task = assertInstanceOf(PlantFieldTask.class,
+					roundTrip(ops, new PlantFieldTask(new BlockPos(4, 70, -2), new BlockPos(1, 68, -5), Items.NETHER_WART)));
+			assertEquals(new BlockPos(4, 70, -2), task.from());
+			assertEquals(new BlockPos(1, 68, -5), task.to());
+			assertEquals(Items.NETHER_WART, task.seed());
+		}
+	}
+
+	@Test
+	void plantFieldAtCapDecodes() {
+		// 32x32 columns and a rise of 16 are exactly at the cap.
+		JsonObject json = plantFieldJson(new BlockPos(31, 16, 31), "minecraft:wheat_seeds");
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isSuccess());
+	}
+
+	@Test
+	void plantFieldTooManyColumnsIsAnError() {
+		JsonObject json = plantFieldJson(new BlockPos(32, 0, 31), "minecraft:wheat_seeds");
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
+	@Test
+	void plantFieldTooMuchRiseIsAnError() {
+		JsonObject json = plantFieldJson(new BlockPos(1, 17, 1), "minecraft:wheat_seeds");
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+	}
+
+	@Test
+	void plantFieldNonSeedIsAnError() {
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, plantFieldJson(new BlockPos(1, 0, 1), "minecraft:stick")).isError());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, plantFieldJson(new BlockPos(1, 0, 1), "minecraft:no_such_item")).isError());
+	}
+
+	private static JsonObject plantFieldJson(BlockPos to, String seed) {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", PlantFieldTask.TYPE_ID);
+		json.add("from", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, to).getOrThrow());
+		json.addProperty("seed", seed);
+		return json;
 	}
 
 	@Test

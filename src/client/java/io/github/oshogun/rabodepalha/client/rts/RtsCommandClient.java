@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.client.rts;
 
 import java.util.List;
+import java.util.Optional;
 
 import com.mojang.blaze3d.platform.Window;
 
@@ -161,9 +162,9 @@ public final class RtsCommandClient {
 					return;
 				}
 				BlockPos pos = block.getBlockPos();
-				DRAG.press(pos.getX(), pos.getY(), pos.getZ());
+				DRAG.press(pos.getX(), pos.getY(), pos.getZ(), area.flat());
 			}
-			case DRAGGING -> {
+			case DRAGGING, FIXED -> {
 				// The release ends the drag; a second press meanwhile changes nothing.
 			}
 			case DEPTH -> {
@@ -171,9 +172,9 @@ public final class RtsCommandClient {
 				if (marked == null) {
 					return;
 				}
-				Component problem = RtsOrdersClient.digProblem(marked);
-				if (problem != null) {
-					RtsHud.showFeedback(false, problem);
+				Optional<Component> problem = area.problem().apply(marked);
+				if (problem.isPresent()) {
+					RtsHud.showFeedback(false, problem.get());
 					return;
 				}
 				RtsDigArea confirmed = DRAG.confirm();
@@ -185,9 +186,28 @@ public final class RtsCommandClient {
 		}
 	}
 
-	/** Handles a left release. Returns true if it ended an area drag, which then enters the depth step. */
-	public static boolean onLeftRelease() {
-		return DRAG.release();
+	/**
+	 * Handles a left release. Returns true if it ended an area drag. A depth area then enters its depth step; a
+	 * flat area fires at once with {@code shift}, or shows why it cannot and is dropped, keeping the mode armed.
+	 */
+	public static boolean onLeftRelease(boolean shift) {
+		if (!DRAG.release()) {
+			return false;
+		}
+		if (DRAG.phase() == RtsAreaDrag.Phase.FIXED) {
+			RtsDigArea confirmed = DRAG.confirm();
+			RtsCommands.RtsCommand command = STATE.armed();
+			if (confirmed != null && command != null && command.action() instanceof RtsCommands.Area area) {
+				Optional<Component> problem = area.problem().apply(confirmed);
+				if (problem.isPresent()) {
+					RtsHud.showFeedback(false, problem.get());
+				} else {
+					area.fire().accept(confirmed, shift);
+					STATE.onLeftClick(true, shift);
+				}
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -267,9 +287,23 @@ public final class RtsCommandClient {
 		return DRAG.phase() == RtsAreaDrag.Phase.DRAGGING;
 	}
 
-	/** The area being marked, while dragging or in the depth step, or null. */
+	/** The area being marked, while dragging or in the depth step, or null; null for a flat area. */
 	public static @Nullable RtsDigArea digArea() {
-		return DRAG.area();
+		return DRAG.flat() ? null : DRAG.area();
+	}
+
+	/** The flat area being dragged for Plant, between the two picked blocks, or null. */
+	public static @Nullable RtsDigArea plantArea() {
+		return DRAG.flat() ? DRAG.area() : null;
+	}
+
+	/** Why the armed area command would be rejected over {@code area}, if the client sees a reason. */
+	public static Optional<Component> areaProblem(RtsDigArea area) {
+		RtsCommands.RtsCommand command = STATE.armed();
+		if (command != null && command.action() instanceof RtsCommands.Area armedArea) {
+			return armedArea.problem().apply(area);
+		}
+		return Optional.empty();
 	}
 
 	/** The phase of marking an area. */

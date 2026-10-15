@@ -24,16 +24,19 @@ import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
+import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
+import io.github.oshogun.rabodepalha.rts.RtsField;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
+import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 
 /**
  * Client side of RTS orders. An order sends the clicked block and face for the selected workers; the server
@@ -135,6 +138,67 @@ public final class RtsOrdersClient {
 		}
 		for (int cx = SectionPos.blockToSectionCoord(area.minX()); cx <= SectionPos.blockToSectionCoord(area.maxX()); cx++) {
 			for (int cz = SectionPos.blockToSectionCoord(area.minZ()); cz <= SectionPos.blockToSectionCoord(area.maxZ());
+					cz++) {
+				if (!level.hasChunk(cx, cz)) {
+					return Component.translatable("rabodepalha.rts.order.not_loaded");
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Tills and plants the field between the corners of {@code area} with the seed picked in the panel and the
+	 * selected workers, like {@code /rdp plant <from> <to> <seed> [workers]}. The caller has checked
+	 * {@link #plantProblem}; the server repeats every check.
+	 */
+	public static void sendPlant(RtsDigArea area, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		Optional<Identifier> seed = RtsItemPickClient.picked();
+		if (seed.isEmpty()) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.not_a_seed"));
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsPlantPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsPlantPayload(RtsSelectionClient.selectedIds(),
+					new BlockPos(area.minX(), area.minY(), area.minZ()),
+					new BlockPos(area.maxX(), area.maxY(), area.maxZ()), seed.get(), shift));
+		}
+	}
+
+	/**
+	 * Why the server would reject planting the field between the corners of {@code area} with the picked seed, or
+	 * {@code null} when the client sees no problem. The checks follow the server's order, and the field's size is
+	 * checked before the per-chunk loop.
+	 */
+	public static @Nullable Component plantProblem(RtsDigArea area) {
+		Minecraft client = Minecraft.getInstance();
+		LocalPlayer player = client.player;
+		ClientLevel level = client.level;
+		if (player == null || level == null) {
+			return Component.translatable("rabodepalha.rts.order.not_loaded");
+		}
+		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+		if (level.isOutsideBuildHeight(field.bottomY()) || level.isOutsideBuildHeight(field.topY())) {
+			return Component.translatable("rabodepalha.rts.order.area_out_of_world");
+		}
+		if (field.exceeds()) {
+			return Component.translatable("rabodepalha.rts.order.area_too_large");
+		}
+		if (!RtsItemPickClient.picked().map(FieldBlocks::isSeed).orElse(false)) {
+			return Component.translatable("rabodepalha.rts.order.not_a_seed");
+		}
+		Vec3 eye = player.getEyePosition();
+		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z)
+				> RtsOrders.MAX_TARGET_DISTANCE * RtsOrders.MAX_TARGET_DISTANCE) {
+			return Component.translatable("rabodepalha.rts.order.target_too_far");
+		}
+		for (int cx = SectionPos.blockToSectionCoord(field.minX()); cx <= SectionPos.blockToSectionCoord(field.maxX());
+				cx++) {
+			for (int cz = SectionPos.blockToSectionCoord(field.minZ()); cz <= SectionPos.blockToSectionCoord(field.maxZ());
 					cz++) {
 				if (!level.hasChunk(cx, cz)) {
 					return Component.translatable("rabodepalha.rts.order.not_loaded");

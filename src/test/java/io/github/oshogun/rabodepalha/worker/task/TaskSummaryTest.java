@@ -112,6 +112,14 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void plantFieldNamesSeedAndTargetsBothCorners() {
+		TaskSummary summary = TaskTypes.summarize(new PlantFieldTask(POS, OTHER, Items.WHEAT_SEEDS));
+		assertSummary(summary, "rabodepalha.task.plant_field",
+				List.of(Component.translatable(Items.WHEAT_SEEDS.getDescriptionId()), literal(POS), literal(OTHER)),
+				List.of(POS, OTHER));
+	}
+
+	@Test
 	void build() {
 		Identifier blueprint = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
 		TaskSummary summary = TaskTypes.summarize(new BuildTask(POS, blueprint, Rotation.CLOCKWISE_90));

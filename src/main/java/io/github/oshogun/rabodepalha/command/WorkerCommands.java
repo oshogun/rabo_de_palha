@@ -2,6 +2,7 @@ package io.github.oshogun.rabodepalha.command;
 
 import io.github.oshogun.rabodepalha.mixin.BlockInputAccessor;
 import io.github.oshogun.rabodepalha.registry.ModEntities;
+import io.github.oshogun.rabodepalha.rts.RtsField;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
@@ -9,9 +10,11 @@ import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
+import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.PlantFieldTask;
 import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
@@ -48,6 +51,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
@@ -68,6 +72,11 @@ public final class WorkerCommands {
 
 	private static final DynamicCommandExceptionType AREA_TOO_LARGE = new DynamicCommandExceptionType(volume -> Component.literal(
 			"Dig area of " + volume + " blocks is too large; at most " + DigAreaTask.MAX_VOLUME + " blocks"));
+	private static final DynamicCommandExceptionType FIELD_TOO_LARGE = new DynamicCommandExceptionType(size -> Component.literal(
+			"Field of " + size + " is too large; at most " + RtsField.MAX_COLUMNS + " columns and "
+					+ RtsField.MAX_RISE + " blocks of rise"));
+	private static final DynamicCommandExceptionType NOT_A_SEED =
+			new DynamicCommandExceptionType(item -> Component.literal(item + " is not a seed"));
 	private static final DynamicCommandExceptionType UNKNOWN_BLUEPRINT =
 			new DynamicCommandExceptionType(id -> Component.literal("Unknown blueprint " + id));
 
@@ -103,6 +112,11 @@ public final class WorkerCommands {
 				.then(Commands.literal("dig")
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::dig))))
+				// As for "give" below, "seed" goes before "workers".
+				.then(Commands.literal("plant")
+						.then(Commands.argument("from", BlockPosArgument.blockPos())
+								.then(Commands.argument("to", BlockPosArgument.blockPos())
+										.then(withWorkers(Commands.argument("seed", ItemArgument.item(buildContext)), WorkerCommands::plant)))))
 				.then(Commands.literal("place")
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
@@ -288,9 +302,28 @@ public final class WorkerCommands {
 		return enqueue(ctx, workers, () -> new BuildTask(origin, blueprint, rotation));
 	}
 
+	private static int plant(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) throws CommandSyntaxException {
+		BlockPos from = BlockPosArgument.getLoadedBlockPos(ctx, "from");
+		BlockPos to = BlockPosArgument.getLoadedBlockPos(ctx, "to");
+		Identifier seedId = itemId(ctx, "seed");
+		if (!FieldBlocks.isSeed(seedId)) {
+			throw NOT_A_SEED.create(seedId);
+		}
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			throw FIELD_TOO_LARGE.create(field.label() + " columns, " + field.rise() + " rise");
+		}
+		Item seed = ItemArgument.getItem(ctx, "seed").item().value();
+		return enqueue(ctx, workers, () -> new PlantFieldTask(from, to, seed));
+	}
+
 	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */
 	private static Identifier itemId(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-		ItemInput input = ItemArgument.getItem(ctx, "item");
+		return itemId(ctx, "item");
+	}
+
+	private static Identifier itemId(CommandContext<CommandSourceStack> ctx, String name) throws CommandSyntaxException {
+		ItemInput input = ItemArgument.getItem(ctx, name);
 		if (!input.components().isEmpty()) {
 			throw ITEM_COMPONENTS_NOT_SUPPORTED.create();
 		}

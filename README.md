@@ -21,6 +21,7 @@ commanded that worker.
 /rdp deposit <pos> [item] [workers]
 /rdp withdraw <pos> <item> [count] [workers]
 /rdp build <origin> <blueprint> [rotation] [workers]
+/rdp plant <from> <to> <seed> [workers]
 /rdp queue [workers]
 /rdp clear [workers]
 ```
@@ -41,6 +42,17 @@ items from the worker's inventory. If materials are short at the start, the task
 `MISSING_ITEM` listing what is needed. Air, structure voids and piston heads are not placed,
 waterlogging is dropped, extended pistons are retracted, and a lone chest half becomes a single
 chest. Blueprints are limited to 4096 entries.
+
+`plant` farms the rectangle between `from` and `to`: each column's field block is its top block
+within 3 blocks of the picked corners' heights. Fields are limited to 1024 columns and 16 blocks
+of height difference between the corners. `seed` is wheat, beetroot, melon, pumpkin or torchflower
+seeds, pitcher pods, carrots, potatoes or nether wart. Grass, dirt and dirt path with air above are
+tilled (needs a hoe in the worker's inventory; each block costs 1 durability, and a broken hoe is
+replaced by the next one); farmland is planted directly, and nether wart goes on soul sand. Plants
+in the way are cleared, anything else is skipped and counted. The worker uses up one seed per
+block. Running out of seeds or hoes ends the task with counts (`planted 40 of 64: out of wheat
+seeds`). If part of the field is not near water the task still succeeds but warns that those crops
+grow slowly. Workers never trample farmland, whatever `mobGriefing` says.
 
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.
@@ -107,6 +119,12 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
     the area and keeps Dig armed; a second press disarms it. The area is drawn as a box with its
     size and volume (e.g. `12×8×3 = 288`); the box turns red when the area is invalid: over 4096
     blocks, beyond 128 blocks, outside the world height or over unloaded chunks.
+  - Plant (Farm page of the command bar; no default key, bind `Plant` in the controls) tills and
+    plants a field. Pick the seed in the worker panel first (the picker above), then left-drag the
+    rectangle on the ground; there is no depth step. Release to plant (hold `Shift` when releasing to
+    queue it after the current orders); right-click or `Esc` cancels. The overlay tints each ground block: amber to be tilled (or cleared), green to be
+    planted, red skipped; the whole field turns red when over 1024 columns or 16 blocks of height
+    difference. Same range and loaded-chunk limits as Dig.
   - Build (`Y` or the Build button) opens a blueprint picker (saved-in-world templates first, then
     pack ones; tick the toggle to also list vanilla structures). The picked blueprint stays armed.
     A box shows the footprint at the hovered block, using the same origin and rotation as

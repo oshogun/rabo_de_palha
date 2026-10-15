@@ -90,8 +90,9 @@ abstract class MouseHandlerMixin {
 					RtsSelectionClient.onLeftPress(this.xpos, this.ypos);
 				}
 			} else if (action == 0) {
-				// An area drag ends here and enters its depth step; its press already set the swallow flag.
-				RtsCommandClient.onLeftRelease();
+				// An area drag ends here and enters its depth step, or fires if flat; its press already set the
+				// swallow flag.
+				RtsCommandClient.onLeftRelease(rawButtonInfo.hasShiftDown());
 				if (this.rabodepalha$swallowLeftRelease) {
 					this.rabodepalha$swallowLeftRelease = false;
 				} else {

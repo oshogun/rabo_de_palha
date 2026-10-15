@@ -20,6 +20,7 @@ import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
+import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
@@ -34,9 +35,11 @@ import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.Containers;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
+import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.PlantFieldTask;
 import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
@@ -137,6 +140,27 @@ public final class RtsOrders {
 	public static Result handleDig(ServerPlayer player, RtsDigPayload payload, PermissionSet permissions,
 			double maxTargetDistance, double maxWorkerDistance) {
 		return sendFeedback(player, applyDig(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's plant order. */
+	public static Result handlePlant(ServerPlayer player, RtsPlantPayload payload) {
+		return handlePlant(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link PlantFieldTask} over the payload's field, like {@code /rdp plant <from>
+	 * <to> <seed> [workers]}, then sends the feedback. The whole order is rejected when the field's window is
+	 * outside the world, the field is over {@link RtsField#MAX_COLUMNS} columns or {@link RtsField#MAX_RISE} rise,
+	 * the item is not a seed, or the field is too far from the player's eyes or not loaded.
+	 */
+	public static Result handlePlant(ServerPlayer player, RtsPlantPayload payload, PermissionSet permissions) {
+		return handlePlant(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handlePlant(ServerPlayer, RtsPlantPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handlePlant(ServerPlayer player, RtsPlantPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyPlant(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
 	}
 
 	/** Entry point for the client's spawn order. */
@@ -476,6 +500,54 @@ public final class RtsOrders {
 				payload.append() ? "rabodepalha.rts.order.dig_queued" : "rabodepalha.rts.order.dig_replaced",
 				area.sizeX(), area.sizeZ(), area.sizeY(), workers.valid().size());
 		return assign(player, workers, payload.append(), () -> new DigAreaTask(min, max), applied);
+	}
+
+	private static Result applyPlant(ServerPlayer player, RtsPlantPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+
+		ServerLevel level = player.level();
+		BlockPos from = payload.from().immutable();
+		BlockPos to = payload.to().immutable();
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (level.isOutsideBuildHeight(field.bottomY()) || level.isOutsideBuildHeight(field.topY())) {
+			return reject("rabodepalha.rts.order.area_out_of_world");
+		}
+		// Before any per-chunk work, so a crafted payload cannot make the server scan a huge footprint.
+		if (field.exceeds()) {
+			return reject("rabodepalha.rts.order.area_too_large");
+		}
+		if (!FieldBlocks.isSeed(payload.seed())) {
+			return reject("rabodepalha.rts.order.not_a_seed");
+		}
+		// The picked corners, which is what the client's pick range checks.
+		RtsDigArea area = RtsDigArea.between(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		Vec3 eye = player.getEyePosition();
+		if (area.farthestCornerDistanceSqr(eye.x, eye.y, eye.z) > maxTargetDistance * maxTargetDistance) {
+			return reject("rabodepalha.rts.order.target_too_far");
+		}
+		if (!level.hasChunksAt(field.minX(), field.minZ(), field.maxX(), field.maxZ())) {
+			return reject("rabodepalha.rts.order.not_loaded");
+		}
+
+		Workers workers = resolveWorkers(level, ids, new Vec3(area.centerX(), area.centerY(), area.centerZ()),
+				maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		Item seed = BuiltInRegistries.ITEM.getValue(payload.seed());
+		// Args: seed name, size x, size z, worker count.
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.plant_queued" : "rabodepalha.rts.order.plant_replaced",
+				Component.translatable(seed.getDescriptionId()), field.sizeX(), field.sizeZ(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new PlantFieldTask(from, to, seed), applied);
 	}
 
 	private static Result applyBuild(ServerPlayer player, RtsBuildPayload payload, PermissionSet permissions,
