@@ -57,6 +57,17 @@ public final class Openables {
 	 * {@link FenceGateBlock#useWithoutItem} would read a player's direction to turn it.
 	 */
 	public static void open(Level level, WorkerEntity worker, BlockPos pos, boolean open) {
+		if (setOpen(level, worker, pos, open)) {
+			worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+		}
+	}
+
+	/**
+	 * As {@link #open}, without the arm swing, for callers that swing themselves.
+	 *
+	 * @return whether the block there is openable
+	 */
+	public static boolean setOpen(Level level, WorkerEntity worker, BlockPos pos, boolean open) {
 		BlockState state = level.getBlockState(pos);
 		if (isOpenableDoor(state)) {
 			((DoorBlock) state.getBlock()).setOpen(worker, level, state, pos, open);
@@ -69,8 +80,8 @@ public final class Openables {
 				level.gameEvent(worker, open ? GameEvent.BLOCK_OPEN : GameEvent.BLOCK_CLOSE, pos);
 			}
 		} else {
-			return;
+			return false;
 		}
-		worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+		return true;
 	}
 }

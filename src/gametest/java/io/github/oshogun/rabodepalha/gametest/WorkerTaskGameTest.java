@@ -13,6 +13,7 @@ import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
+import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
@@ -60,13 +61,17 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.RedstoneLampBlock;
 import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.BrewingStandBlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.AttachFace;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -1958,6 +1963,175 @@ public class WorkerTaskGameTest {
 			helper.assertTrue(chest.isEmpty(), "chest is not empty");
 			helper.assertTrue(count(worker, Items.DIAMOND_PICKAXE) == 1, "worker lost the pickaxe");
 		});
+	}
+
+	private static final BlockPos USABLE = new BlockPos(5, 1, 5);
+
+	/** A lever or button on the floor. */
+	private static BlockState onFloor(Block block) {
+		return block.defaultBlockState().setValue(BlockStateProperties.ATTACH_FACE, AttachFace.FLOOR);
+	}
+
+	private static void assertSucceededWith(GameTestHelper helper, Recorded recorded, String note) {
+		helper.assertTrue(recorded.outcome() instanceof TaskOutcome.Succeeded s && s.note().contains(note),
+				"expected success with '" + note + "', got " + recorded.outcome());
+	}
+
+	@GameTest(maxTicks = 400)
+	public void leverTogglesAndPowersLamp(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, onFloor(Blocks.LEVER));
+		BlockPos lamp = USABLE.east();
+		helper.setBlock(lamp, Blocks.REDSTONE_LAMP);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			assertSucceededWith(helper, outcomes.get(0), "used ");
+			helper.assertBlockProperty(USABLE, BlockStateProperties.POWERED, true);
+			helper.assertBlockProperty(lamp, RedstoneLampBlock.LIT, true);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void buttonPressesThenReleases(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, onFloor(Blocks.STONE_BUTTON));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+		boolean[] pressedAfterUse = {false};
+		helper.onEachTick(() -> {
+			if (outcomes.size() == 1 && helper.getBlockState(USABLE).getValue(BlockStateProperties.POWERED)) {
+				pressedAfterUse[0] = true;
+			}
+		});
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertTrue(pressedAfterUse[0], "button was not pressed");
+			helper.assertBlockProperty(USABLE, BlockStateProperties.POWERED, false);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void pressedButtonSucceedsWithoutEffect(GameTestHelper helper) {
+		layFloor(helper);
+		// Pressed without a scheduled release, so it stays pressed unless the worker presses it again.
+		helper.setBlock(USABLE, onFloor(Blocks.STONE_BUTTON).setValue(BlockStateProperties.POWERED, true));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			assertSucceededWith(helper, outcomes.get(0), "was already pressed");
+			helper.assertBlockProperty(USABLE, BlockStateProperties.POWERED, true);
+			helper.assertFalse(helper.getLevel().getBlockTicks().hasScheduledTick(helper.absolutePos(USABLE),
+					Blocks.STONE_BUTTON), "the button was pressed again");
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void doorTogglesThroughItsUpperHalf(GameTestHelper helper) {
+		layFloor(helper);
+		BlockState door = Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.EAST);
+		helper.setBlock(USABLE, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER));
+		helper.setBlock(USABLE.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE.above())));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertBlockProperty(USABLE, DoorBlock.OPEN, true);
+			helper.assertBlockProperty(USABLE.above(), DoorBlock.OPEN, true);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void trapdoorToggles(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, Blocks.OAK_TRAPDOOR.defaultBlockState().setValue(TrapDoorBlock.OPEN, false));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> {
+			assertSucceeded(helper, outcomes);
+			helper.assertBlockProperty(USABLE, TrapDoorBlock.OPEN, true);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void gateTogglesOpenThenClosed(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, Blocks.OAK_FENCE_GATE.defaultBlockState()
+				.setValue(FenceGateBlock.FACING, Direction.EAST)
+				.setValue(FenceGateBlock.OPEN, false));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		BlockPos gate = helper.absolutePos(USABLE);
+		worker.tasks().enqueue(new UseTask(gate));
+		worker.tasks().enqueue(new UseTask(gate));
+		boolean[] openedBetween = {false};
+		helper.onEachTick(() -> {
+			if (outcomes.size() == 1 && helper.getBlockState(USABLE).getValue(FenceGateBlock.OPEN)) {
+				openedBetween[0] = true;
+			}
+		});
+
+		helper.succeedWhen(() -> {
+			helper.assertTrue(outcomes.size() == 2, "uses not finished yet");
+			for (Recorded recorded : outcomes) {
+				assertSucceededWith(helper, recorded, "used ");
+			}
+			helper.assertTrue(openedBetween[0], "gate did not open after the first use");
+			helper.assertBlockProperty(USABLE, FenceGateBlock.OPEN, false);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void ironDoorNotUsable(GameTestHelper helper) {
+		layFloor(helper);
+		BlockState door = Blocks.IRON_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.EAST);
+		helper.setBlock(USABLE, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER));
+		helper.setBlock(USABLE.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_USABLE);
+			helper.assertBlockProperty(USABLE, DoorBlock.OPEN, false);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void ironTrapdoorNotUsable(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, Blocks.IRON_TRAPDOOR);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> {
+			assertFailedWith(helper, outcomes, FailureReason.NOT_USABLE);
+			helper.assertBlockProperty(USABLE, TrapDoorBlock.OPEN, false);
+		});
+	}
+
+	@GameTest(maxTicks = 400)
+	public void stoneNotUsable(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(USABLE, Blocks.STONE);
+		List<Recorded> outcomes = new ArrayList<>();
+		WorkerEntity worker = spawnWorker(helper, outcomes);
+		worker.tasks().enqueue(new UseTask(helper.absolutePos(USABLE)));
+
+		helper.succeedWhen(() -> assertFailedWith(helper, outcomes, FailureReason.NOT_USABLE));
 	}
 
 	/** Saves {@code worker} and loads the result into a new, unspawned worker. */

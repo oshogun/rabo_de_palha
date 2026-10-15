@@ -37,8 +37,8 @@ import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 
 /**
  * Client side of RTS orders. An order sends the clicked block and face for the selected workers; the server
- * derives the target, checks the order and answers through the HUD. A plain right-click is a move; other kinds
- * come from the command bar. Shift appends to each worker's queue instead of replacing it. Orders that
+ * derives the target, checks the order and answers through the HUD. A plain right-click is a move, or a use on a lever or
+ * button; other kinds come from the command bar. Shift appends to each worker's queue instead of replacing it. Orders that
  * {@link RtsOrderHint} already knows will be rejected are refused locally with the same reason the HUD hint
  * shows.
  */
@@ -46,11 +46,12 @@ public final class RtsOrdersClient {
 	private RtsOrdersClient() {
 	}
 
-	/** A plain right-click: move the selected workers to the clicked block. */
+	/** A plain right-click: use the clicked lever or button, or move the selected workers to the clicked block. */
 	public static void onRightClick(double x, double y, boolean shift) {
-		// The order targets the block the ray hits; a worker under the cursor is ignored.
+		// The order targets the block the ray hits; a worker under the cursor only keeps it a move.
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hoverAt(x, y);
-		sendOrder(RtsOrderKind.MOVE, hover, RtsOrderHintClient.current(hover, RtsOrderKind.MOVE), shift);
+		RtsOrderKind kind = RtsOrderHintClient.rightClickKind(hover);
+		sendOrder(kind, hover, RtsOrderHintClient.current(hover, kind), shift);
 	}
 
 	/** Sends an order of {@code kind} at {@code hover}, or shows why {@code hint} rejects it. */

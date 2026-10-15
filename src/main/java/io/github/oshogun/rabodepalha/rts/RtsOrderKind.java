@@ -12,7 +12,9 @@ import net.minecraft.util.ByIdMap;
 public enum RtsOrderKind {
 	MOVE,
 	MINE,
-	PLACE;
+	PLACE,
+	/** Appended last so the wire ordinals of the others stay stable. */
+	USE;
 
 	private static final IntFunction<RtsOrderKind> BY_ID = ByIdMap.continuous(RtsOrderKind::ordinal, values(), ByIdMap.OutOfBoundsStrategy.ZERO);
 	public static final StreamCodec<ByteBuf, RtsOrderKind> STREAM_CODEC = ByteBufCodecs.idMapper(BY_ID, RtsOrderKind::ordinal);

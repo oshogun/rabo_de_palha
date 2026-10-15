@@ -68,6 +68,11 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void use() {
+		assertSummary(TaskTypes.summarize(new UseTask(POS)), "rabodepalha.task.use", List.of(literal(POS)), List.of(POS));
+	}
+
+	@Test
 	void placeUsesTranslatableBlockName() {
 		TaskSummary summary = TaskTypes.summarize(new PlaceTask(POS, Blocks.OAK_PLANKS.defaultBlockState()));
 		assertSummary(summary, "rabodepalha.task.place", List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of(POS));

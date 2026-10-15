@@ -105,6 +105,66 @@ class RtsOrderHintTest {
 		assertTrue(hint.valid());
 	}
 
+	/** A lever or button hit close by. */
+	private static Target switchBlock() {
+		return new Target(false, true, false, false, 16.0, true, true);
+	}
+
+	/** A door or gate hit close by: usable, but not a switch. */
+	private static Target door() {
+		return new Target(false, true, false, false, 16.0, true, false);
+	}
+
+	@Test
+	void rightClickUsesSwitches() {
+		assertEquals(RtsOrderKind.USE, RtsOrderHint.rightClickKind(switchBlock()));
+	}
+
+	@Test
+	void rightClickMovesElsewhere() {
+		assertEquals(RtsOrderKind.MOVE, RtsOrderHint.rightClickKind(solid()));
+		assertEquals(RtsOrderKind.MOVE, RtsOrderHint.rightClickKind(door()));
+		assertEquals(RtsOrderKind.MOVE, RtsOrderHint.rightClickKind(new Target(false, false, false, false, 0.0)));
+		assertEquals(RtsOrderKind.MOVE,
+				RtsOrderHint.rightClickKind(new Target(true, true, false, false, 16.0, true, true)), "worker hit");
+	}
+
+	@Test
+	void useOnSwitchIsValid() {
+		assertEquals(new Hint("rabodepalha.rts.hint.use", true, RtsOrderKind.USE),
+				RtsOrderHint.evaluate(1, RtsOrderKind.USE, switchBlock()));
+		assertTrue(RtsOrderHint.evaluate(1, RtsOrderKind.USE, door()).valid());
+	}
+
+	@Test
+	void useOnUnusableBlockOrAirIsRejected() {
+		Hint notUsable = new Hint("rabodepalha.rts.order.not_usable", false, RtsOrderKind.USE);
+
+		assertEquals(notUsable, RtsOrderHint.evaluate(1, RtsOrderKind.USE, solid()));
+		assertEquals(notUsable, RtsOrderHint.evaluate(1, RtsOrderKind.USE, new Target(false, true, true, false, 16.0)));
+	}
+
+	@Test
+	void useRejectionOrder() {
+		Target farSwitch = new Target(false, true, false, false, Math.nextUp(MAX_SQR), true, true);
+		Target farStone = new Target(false, true, false, false, Math.nextUp(MAX_SQR));
+
+		assertEquals("rabodepalha.rts.order.target_too_far", RtsOrderHint.evaluate(1, RtsOrderKind.USE, farSwitch).key());
+		assertEquals("rabodepalha.rts.order.not_usable", RtsOrderHint.evaluate(1, RtsOrderKind.USE, farStone).key());
+		assertEquals("rabodepalha.rts.order.nothing_selected",
+				RtsOrderHint.evaluate(0, RtsOrderKind.USE, switchBlock()).key());
+		assertEquals("rabodepalha.rts.order.no_target",
+				RtsOrderHint.evaluate(1, RtsOrderKind.USE, new Target(false, false, false, false, 0.0)).key());
+	}
+
+	@Test
+	void usableFlagsOnlyMatterForUse() {
+		for (RtsOrderKind kind : List.of(RtsOrderKind.MOVE, RtsOrderKind.MINE, RtsOrderKind.PLACE)) {
+			assertEquals(RtsOrderHint.evaluate(1, kind, new Target(false, true, false, true, 16.0)),
+					RtsOrderHint.evaluate(1, kind, new Target(false, true, false, true, 16.0, true, true)), kind.name());
+		}
+	}
+
 	@Test
 	void nothingSelectedBeatsOtherRejections() {
 		Target everythingWrong = new Target(false, false, true, false, MAX_SQR * 4);

@@ -13,7 +13,7 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Turns the selected workers' snapshots into the markers drawn for their current and queued tasks: a column
- * for a move, a block for mine, place, deposit and withdraw, a box for a dig area and a build's footprint.
+ * for a move, a block for mine, place, deposit, withdraw and use, a box for a dig area and a build's footprint.
  * Lines join each worker to its current target and then its queued targets in order. The current task gets
  * its kind's full colour, queued ones a dimmed one ({@link RtsOrderColors}).
  *
@@ -131,7 +131,7 @@ public final class QueuedOrderMarkers {
 		BlockPos first = targets.get(0);
 		return switch (kind) {
 			case MOVE -> column(first);
-			case MINE, PLACE, DEPOSIT, WITHDRAW -> block(first);
+			case MINE, PLACE, DEPOSIT, WITHDRAW, USE -> block(first);
 			case DIG -> targets.size() >= 2 ? box(targets.get(0), targets.get(1)) : block(first);
 			case BUILD -> targets.size() >= 3 ? box(targets.get(1), targets.get(2)) : column(first);
 			case OTHER -> null;

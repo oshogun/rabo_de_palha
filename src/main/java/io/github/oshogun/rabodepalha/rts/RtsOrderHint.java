@@ -20,9 +20,16 @@ public final class RtsOrderHint {
 	 * @param blockIsAir whether the hit block is air (only meaningful with {@code blockHit})
 	 * @param pickedBlock whether the item picked from the workers' inventory is a block
 	 * @param targetDistSqr squared distance from the player's eyes to the order's target block
+	 * @param blockUsable whether a worker can use the hit block (lever, button, door, trapdoor, gate)
+	 * @param blockIsSwitch whether the hit block is a lever or a button, which a right-click uses
 	 */
 	public record Target(boolean workerHit, boolean blockHit, boolean blockIsAir, boolean pickedBlock,
-			double targetDistSqr) {
+			double targetDistSqr, boolean blockUsable, boolean blockIsSwitch) {
+		/** A target whose block is neither usable nor a switch. */
+		public Target(boolean workerHit, boolean blockHit, boolean blockIsAir, boolean pickedBlock,
+				double targetDistSqr) {
+			this(workerHit, blockHit, blockIsAir, pickedBlock, targetDistSqr, false, false);
+		}
 	}
 
 	/**
@@ -50,8 +57,18 @@ public final class RtsOrderHint {
 	}
 
 	/**
+	 * What a plain right-click orders: use on a lever or button, move anywhere else. Doors and gates are
+	 * moved through, not used. With a worker under the cursor it stays a move, so a lever behind a worker
+	 * is not pulled by surprise.
+	 */
+	public static RtsOrderKind rightClickKind(Target t) {
+		return !t.workerHit() && t.blockHit() && !t.blockIsAir() && t.blockIsSwitch()
+				? RtsOrderKind.USE : RtsOrderKind.MOVE;
+	}
+
+	/**
 	 * An order of the given kind at the target. Rejections are checked in this order: nothing selected,
-	 * no block hit, mining air, nothing to place, target too far.
+	 * no block hit, mining air, nothing to place, nothing usable, target too far.
 	 */
 	public static Hint evaluate(int selectionCount, RtsOrderKind kind, Target t) {
 		if (selectionCount <= 0) {
@@ -66,6 +83,9 @@ public final class RtsOrderHint {
 		if (kind == RtsOrderKind.PLACE && !t.pickedBlock()) {
 			return reject("rabodepalha.rts.order.no_block", kind);
 		}
+		if (kind == RtsOrderKind.USE && (t.blockIsAir() || !t.blockUsable())) {
+			return reject("rabodepalha.rts.order.not_usable", kind);
+		}
 		if (t.targetDistSqr() > RtsOrders.MAX_TARGET_DISTANCE * RtsOrders.MAX_TARGET_DISTANCE) {
 			return reject("rabodepalha.rts.order.target_too_far", kind);
 		}
@@ -73,6 +93,7 @@ public final class RtsOrderHint {
 			case MOVE -> "rabodepalha.rts.hint.move";
 			case MINE -> "rabodepalha.rts.hint.mine";
 			case PLACE -> "rabodepalha.rts.hint.place";
+			case USE -> "rabodepalha.rts.hint.use";
 		}, true, kind);
 	}
 

@@ -28,6 +28,7 @@ import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.worker.WorkerEntity;
+import io.github.oshogun.rabodepalha.worker.Usables;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.Containers;
@@ -36,6 +37,7 @@ import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import org.jspecify.annotations.Nullable;
@@ -380,7 +382,7 @@ public final class RtsOrders {
 	public static BlockPos target(RtsOrderKind kind, BlockPos clicked, Direction face) {
 		return switch (kind) {
 			case MOVE -> clicked.above();
-			case MINE -> clicked.immutable();
+			case MINE, USE -> clicked.immutable();
 			case PLACE -> clicked.relative(face);
 		};
 	}
@@ -408,6 +410,9 @@ public final class RtsOrders {
 		if (kind == RtsOrderKind.MINE && level.getBlockState(target).isAir()) {
 			return reject("rabodepalha.rts.order.air");
 		}
+		if (kind == RtsOrderKind.USE && !Usables.isUsable(level.getBlockState(target))) {
+			return reject("rabodepalha.rts.order.not_usable");
+		}
 		if (kind == RtsOrderKind.PLACE) {
 			// The block comes from the item picked in the workers' inventory; a worker without it fails in PlaceTask.
 			Item item = payload.item().flatMap(BuiltInRegistries.ITEM::getOptional).orElse(null);
@@ -422,10 +427,12 @@ public final class RtsOrders {
 			return workers.noneValid();
 		}
 		BlockState state = placeState;
+		// A door is used through its lower half, so a click on either half queues the same task.
+		BlockPos taskPos = kind == RtsOrderKind.USE ? Usables.canonicalPos(level, target) : target;
 		Component applied = Component.translatable(
 				payload.append() ? "rabodepalha.rts.order.queued" : "rabodepalha.rts.order.replaced",
 				kind.name().toLowerCase(Locale.ROOT), target.getX(), target.getY(), target.getZ(), workers.valid().size());
-		return assign(player, workers, payload.append(), () -> newTask(kind, target, state), applied);
+		return assign(player, workers, payload.append(), () -> newTask(kind, taskPos, state), applied);
 	}
 
 	private static Result applyDig(ServerPlayer player, RtsDigPayload payload, PermissionSet permissions,
@@ -819,6 +826,7 @@ public final class RtsOrders {
 			case MOVE -> new MoveToTask(target);
 			case MINE -> new MineTask(target);
 			case PLACE -> new PlaceTask(target, placeState);
+			case USE -> new UseTask(target);
 		};
 	}
 

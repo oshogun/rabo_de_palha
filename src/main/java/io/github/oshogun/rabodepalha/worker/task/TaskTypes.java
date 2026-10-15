@@ -57,6 +57,10 @@ public final class TaskTypes {
 			BlockPos.CODEC.fieldOf("pos").xmap(MineTask::new, MineTask::pos),
 			(task, sizes) -> summary("mine", List.of(pos(task.pos())), List.of(task.pos())));
 
+	public static final MapCodec<UseTask> USE = register(UseTask.TYPE_ID, UseTask.class,
+			BlockPos.CODEC.fieldOf("pos").xmap(UseTask::new, UseTask::pos),
+			(task, sizes) -> summary("use", List.of(pos(task.pos())), List.of(task.pos())));
+
 	/**
 	 * A full block state ({@code {Name, Properties}}). Saves from before states were stored hold a bare
 	 * block id, which still decodes, as the default state. An unknown id is a decode error, which drops

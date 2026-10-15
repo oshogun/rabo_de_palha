@@ -12,6 +12,7 @@ import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
@@ -44,6 +45,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.AttachFace;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -326,6 +329,25 @@ public class WorkerCommandGameTest {
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MineTask m && m.pos().equals(target),
 				"expected one mine " + target + ", got " + queue);
 		assertFeedback(helper, rec, "Queued mine " + target.toShortString() + " for 1 worker(s)");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void useQueuesUseTask(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(TARGET, Blocks.LEVER.defaultBlockState()
+				.setValue(BlockStateProperties.ATTACH_FACE, AttachFace.FLOOR));
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		BlockPos target = helper.absolutePos(TARGET);
+		RecordingCommandSource rec = new RecordingCommandSource();
+
+		int result = run(helper, sourceAt(helper, rec, worker), "rdp use " + coords(target));
+
+		helper.assertTrue(result == 1, "expected result 1, got " + result);
+		List<Task<WorkerEntity>> queue = queueOf(worker);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof UseTask u && u.pos().equals(target),
+				"expected one use " + target + ", got " + queue);
+		assertFeedback(helper, rec, "Queued use " + target.toShortString() + " for 1 worker(s)");
 		helper.succeed();
 	}
 

@@ -26,6 +26,8 @@ public enum FailureReason {
 	ITEM_NOT_FOUND,
 	/** The worker's inventory has no room for the items the task would take. */
 	INVENTORY_FULL,
+	/** The block is not something a worker can use (lever, button, hand-openable door or trapdoor, fence gate). */
+	NOT_USABLE,
 	/** Unexpected failure inside task code (an exception, or tick returned null). */
 	ERROR
 }

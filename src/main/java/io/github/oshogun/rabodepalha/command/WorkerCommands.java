@@ -12,6 +12,7 @@ import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
+import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
 import java.util.ArrayList;
@@ -96,6 +97,9 @@ public final class WorkerCommands {
 				.then(Commands.literal("mine")
 						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos()),
 								(ctx, workers) -> enqueue(ctx, workers, () -> new MineTask(BlockPosArgument.getLoadedBlockPos(ctx, "pos"))))))
+				.then(Commands.literal("use")
+						.then(withWorkers(Commands.argument("pos", BlockPosArgument.blockPos()),
+								(ctx, workers) -> enqueue(ctx, workers, () -> new UseTask(BlockPosArgument.getLoadedBlockPos(ctx, "pos"))))))
 				.then(Commands.literal("dig")
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::dig))))

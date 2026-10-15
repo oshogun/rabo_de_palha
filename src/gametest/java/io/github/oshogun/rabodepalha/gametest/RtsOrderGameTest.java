@@ -18,6 +18,7 @@ import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.TaskSummary;
+import io.github.oshogun.rabodepalha.worker.task.UseTask;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +44,12 @@ import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.AttachFace;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 /**
@@ -270,6 +276,65 @@ public class RtsOrderGameTest {
 		BlockPos target = helper.absolutePos(CLICKED);
 		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof MineTask m && m.pos().equals(target),
 				"expected only a mine " + target + ", got " + queue);
+		finish(helper, player);
+	}
+
+	@GameTest
+	public void useWithoutPermissionOrOutsideRtsRejected(GameTestHelper helper) {
+		layFloor(helper);
+		helper.setBlock(CLICKED.above(), Blocks.LEVER.defaultBlockState()
+				.setValue(BlockStateProperties.ATTACH_FACE, AttachFace.FLOOR));
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		ServerPlayer player = RtsModeGameTest.joinPlayer(helper);
+		RtsOrderPayload payload = order(helper, RtsOrderKind.USE, CLICKED.above(), false, worker);
+
+		assertResult(helper, RtsOrders.handle(player, payload, LEVEL_0), false, 0, "no_permission");
+		assertResult(helper, RtsOrders.handle(player, payload, LEVEL_2), false, 0, "not_rts");
+		assertUntouched(helper, worker);
+		finish(helper, player);
+	}
+
+	@GameTest
+	public void useEnqueuesOnlyOnUsableBlocks(GameTestHelper helper) {
+		layFloor(helper);
+		BlockPos lever = CLICKED.above();
+		helper.setBlock(lever, Blocks.LEVER.defaultBlockState()
+				.setValue(BlockStateProperties.ATTACH_FACE, AttachFace.FLOOR));
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		ServerPlayer player = rtsPlayer(helper);
+
+		RtsOrders.Result stone = RtsOrders.handle(player, order(helper, RtsOrderKind.USE, CLICKED, false, worker), LEVEL_2);
+		assertResult(helper, stone, false, 0, "not_usable");
+		assertUntouched(helper, worker);
+
+		RtsOrders.Result result = RtsOrders.handle(player, order(helper, RtsOrderKind.USE, lever, false, worker), LEVEL_2);
+		assertResult(helper, result, true, 1, "replaced");
+		List<Task<WorkerEntity>> queue = worker.tasks().snapshot();
+		BlockPos target = helper.absolutePos(lever);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof UseTask u && u.pos().equals(target),
+				"expected only a use " + target + ", got " + queue);
+		List<TaskSummary> tasks = snapshotTasks(worker);
+		helper.assertTrue(tasks.size() == 1 && RtsTaskKind.of(tasks.get(0)) == RtsTaskKind.USE, "unexpected tasks " + tasks);
+		finish(helper, player);
+	}
+
+	@GameTest
+	public void useOnDoorUpperHalfTargetsLowerHalf(GameTestHelper helper) {
+		layFloor(helper);
+		BlockState door = Blocks.OAK_DOOR.defaultBlockState();
+		BlockPos lower = CLICKED.above();
+		helper.setBlock(lower, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER));
+		helper.setBlock(lower.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+		WorkerEntity worker = helper.spawn(ModEntities.WORKER, WORKER_START);
+		ServerPlayer player = rtsPlayer(helper);
+
+		RtsOrders.Result result = RtsOrders.handle(player, order(helper, RtsOrderKind.USE, lower.above(), false, worker),
+				LEVEL_2);
+		assertResult(helper, result, true, 1, "replaced");
+		List<Task<WorkerEntity>> queue = worker.tasks().snapshot();
+		BlockPos target = helper.absolutePos(lower);
+		helper.assertTrue(queue.size() == 1 && queue.get(0) instanceof UseTask u && u.pos().equals(target),
+				"expected only a use " + target + ", got " + queue);
 		finish(helper, player);
 	}
 

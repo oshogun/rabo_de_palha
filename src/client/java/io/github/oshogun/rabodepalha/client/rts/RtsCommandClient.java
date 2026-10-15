@@ -19,7 +19,6 @@ import io.github.oshogun.rabodepalha.rts.RtsCommandBar;
 import io.github.oshogun.rabodepalha.rts.RtsCommandPage;
 import io.github.oshogun.rabodepalha.rts.RtsDigArea;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
-import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 
 /**
  * Client state of the RTS command bar: which page is shown, which command is armed, and the clicks on the bar and
@@ -296,7 +295,7 @@ public final class RtsCommandClient {
 		return tabAt(client.mouseHandler.xpos(), client.mouseHandler.ypos());
 	}
 
-	/** What a left-click would do with the armed command, or what a right-click move would do otherwise. */
+	/** What a left-click would do with the armed command, or what a plain right-click would do otherwise. */
 	public static RtsOrderHint.Hint currentHint(RtsSelectionClient.Hover hover) {
 		RtsCommands.RtsCommand command = STATE.armed();
 		if (command != null && command.action() instanceof RtsCommands.Armed armed) {
@@ -305,7 +304,7 @@ public final class RtsCommandClient {
 		if (command != null && command.action() instanceof RtsCommands.Area area) {
 			return area.hint().apply(hover);
 		}
-		return RtsOrderHintClient.current(hover, RtsOrderKind.MOVE);
+		return RtsOrderHintClient.rightClick(hover);
 	}
 
 	/** Disarms any armed command, when RTS mode ends or a screen opens. */

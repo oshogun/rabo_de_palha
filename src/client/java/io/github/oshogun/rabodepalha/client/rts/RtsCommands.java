@@ -129,7 +129,10 @@ public final class RtsCommands {
 					new Armed(RtsOrderHintClient::build, RtsOrdersClient::sendBuild, true, () -> {
 						RtsBlueprintsClient.open();
 						RtsOrdersClient.requestBlueprints(RtsBlueprintsClient.includeVanilla());
-					}), Optional.of(RtsTaskKind.BUILD)));
+					}), Optional.of(RtsTaskKind.BUILD)),
+			// No default key: a plain right-click already uses levers and buttons.
+			order("use", () -> new ItemStack(Items.LEVER), InputConstants.UNKNOWN.getValue(), RtsCommandPage.GATHER,
+					RtsOrderKind.USE));
 
 	/** {@link #COMMANDS} sorted into bar pages; fails at class load if a page is overfull. */
 	public static final RtsCommandPages<RtsCommand> PAGES = new RtsCommandPages<>(COMMANDS, RtsCommand::page);
@@ -144,7 +147,13 @@ public final class RtsCommands {
 
 	/** An armed command on the Orders page that gives an order of {@code kind} to the selected workers. */
 	private static RtsCommand order(String id, Supplier<ItemStack> icon, int defaultKey, RtsOrderKind kind) {
-		return new RtsCommand(id, icon, defaultKey, RtsCommandPage.ORDERS, new Armed(
+		return order(id, icon, defaultKey, RtsCommandPage.ORDERS, kind);
+	}
+
+	/** An armed command on {@code page} that gives an order of {@code kind} to the selected workers. */
+	private static RtsCommand order(String id, Supplier<ItemStack> icon, int defaultKey, RtsCommandPage page,
+			RtsOrderKind kind) {
+		return new RtsCommand(id, icon, defaultKey, page, new Armed(
 				hover -> RtsOrderHintClient.current(hover, kind),
 				(hover, shift) -> RtsOrdersClient.sendOrder(kind, hover, RtsOrderHintClient.current(hover, kind),
 						shift)), Optional.of(RtsTaskKind.from(kind)));

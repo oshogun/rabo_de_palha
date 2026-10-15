@@ -70,6 +70,14 @@ class TaskCodecTest {
 	}
 
 	@Test
+	void useRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			UseTask task = assertInstanceOf(UseTask.class, roundTrip(ops, new UseTask(new BlockPos(4, 70, -3))));
+			assertEquals(new BlockPos(4, 70, -3), task.pos());
+		}
+	}
+
+	@Test
 	void placeRoundTrips() {
 		BlockState stairs = Blocks.OAK_STAIRS.defaultBlockState()
 				.setValue(StairBlock.FACING, Direction.EAST)

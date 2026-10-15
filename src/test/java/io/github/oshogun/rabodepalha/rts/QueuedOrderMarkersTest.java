@@ -52,7 +52,7 @@ class QueuedOrderMarkersTest {
 
 	@Test
 	void blockKindsAreTheTargetBlock() {
-		for (String key : List.of("mine", "place", "deposit", "deposit_item", "withdraw")) {
+		for (String key : List.of("mine", "place", "deposit", "deposit_item", "withdraw", "use")) {
 			Marker marker = only(task(key, A));
 			assertEquals(Shape.BLOCK, marker.shape(), key);
 			assertEquals(new AABB(A), marker.bounds(), key);
@@ -62,6 +62,7 @@ class QueuedOrderMarkersTest {
 		assertEquals(RtsTaskKind.PLACE, only(task("place", A)).kind());
 		assertEquals(RtsTaskKind.DEPOSIT, only(task("deposit_item", A)).kind());
 		assertEquals(RtsTaskKind.WITHDRAW, only(task("withdraw", A)).kind());
+		assertEquals(RtsTaskKind.USE, only(task("use", A)).kind());
 	}
 
 	@Test

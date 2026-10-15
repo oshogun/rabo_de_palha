@@ -31,6 +31,7 @@ class RtsTaskKindTest {
 				"deposit", RtsTaskKind.DEPOSIT,
 				"deposit_item", RtsTaskKind.DEPOSIT,
 				"withdraw", RtsTaskKind.WITHDRAW,
+				"use", RtsTaskKind.USE,
 				"unknown", RtsTaskKind.OTHER);
 		expected.forEach((suffix, kind) -> assertEquals(kind, RtsTaskKind.of(summary("rabodepalha.task." + suffix)), suffix));
 	}
@@ -48,6 +49,7 @@ class RtsTaskKindTest {
 		assertEquals(RtsTaskKind.MOVE, RtsTaskKind.from(RtsOrderKind.MOVE));
 		assertEquals(RtsTaskKind.MINE, RtsTaskKind.from(RtsOrderKind.MINE));
 		assertEquals(RtsTaskKind.PLACE, RtsTaskKind.from(RtsOrderKind.PLACE));
+		assertEquals(RtsTaskKind.USE, RtsTaskKind.from(RtsOrderKind.USE));
 	}
 
 	private static TaskSummary summary(String key) {

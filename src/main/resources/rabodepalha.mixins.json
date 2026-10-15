@@ -10,7 +10,8 @@
 		"ServerChunkCacheAccessor",
 		"ServerGamePacketListenerImplMixin",
 		"StructureTemplateAccessor",
-		"StructureTemplateManagerAccessor"
+		"StructureTemplateManagerAccessor",
+		"TrapDoorBlockAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

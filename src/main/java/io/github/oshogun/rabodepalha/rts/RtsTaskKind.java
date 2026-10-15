@@ -15,6 +15,7 @@ public enum RtsTaskKind {
 	BUILD,
 	DEPOSIT,
 	WITHDRAW,
+	USE,
 	OTHER;
 
 	/** The kind of the summarised task; an unknown or malformed key is {@link #OTHER}. */
@@ -31,6 +32,7 @@ public enum RtsTaskKind {
 			case "build" -> BUILD;
 			case "deposit", "deposit_item" -> DEPOSIT;
 			case "withdraw" -> WITHDRAW;
+			case "use" -> USE;
 			default -> OTHER;
 		};
 	}
@@ -41,6 +43,7 @@ public enum RtsTaskKind {
 			case MOVE -> MOVE;
 			case MINE -> MINE;
 			case PLACE -> PLACE;
+			case USE -> USE;
 		};
 	}
 }

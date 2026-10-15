@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -19,6 +20,7 @@ import io.github.oshogun.rabodepalha.rts.RtsItemPicker;
 import io.github.oshogun.rabodepalha.rts.RtsOrderHint;
 import io.github.oshogun.rabodepalha.rts.RtsOrderKind;
 import io.github.oshogun.rabodepalha.rts.RtsOrders;
+import io.github.oshogun.rabodepalha.worker.Usables;
 import io.github.oshogun.rabodepalha.worker.WorkerSpawner;
 
 /**
@@ -32,22 +34,40 @@ public final class RtsOrderHintClient {
 
 	/** The order of the given kind for {@code hover} with the current selection. */
 	public static RtsOrderHint.Hint current(RtsSelectionClient.Hover hover, RtsOrderKind kind) {
+		return RtsOrderHint.evaluate(RtsSelectionClient.count(), kind, target(hover, kind));
+	}
+
+	/** What a plain right-click on {@code hover} orders: use on a lever or button, move otherwise. */
+	public static RtsOrderKind rightClickKind(RtsSelectionClient.Hover hover) {
+		return RtsOrderHint.rightClickKind(target(hover, RtsOrderKind.USE));
+	}
+
+	/** The hint for a plain right-click on {@code hover}. */
+	public static RtsOrderHint.Hint rightClick(RtsSelectionClient.Hover hover) {
+		return current(hover, rightClickKind(hover));
+	}
+
+	private static RtsOrderHint.Target target(RtsSelectionClient.Hover hover, RtsOrderKind kind) {
 		Minecraft client = Minecraft.getInstance();
 		LocalPlayer player = client.player;
 		ClientLevel level = client.level;
 		BlockHitResult block = hover.block();
 		boolean blockHit = block != null && player != null && level != null;
 		boolean blockIsAir = false;
+		boolean blockUsable = false;
+		boolean blockIsSwitch = false;
 		double distSqr = 0;
 		if (blockHit) {
-			blockIsAir = level.getBlockState(block.getBlockPos()).isAir();
+			BlockState state = level.getBlockState(block.getBlockPos());
+			blockIsAir = state.isAir();
+			blockUsable = Usables.isUsable(state);
+			blockIsSwitch = Usables.isSwitch(state);
 			// In RTS the player is the spectator camera, so this is the distance from what is on screen.
 			BlockPos target = RtsOrders.target(kind, block.getBlockPos(), block.getDirection());
 			distSqr = player.getEyePosition().distanceToSqr(Vec3.atCenterOf(target));
 		}
-		RtsOrderHint.Target target = new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir,
-				pickedBlock(), distSqr);
-		return RtsOrderHint.evaluate(RtsSelectionClient.count(), kind, target);
+		return new RtsOrderHint.Target(hover.worker() != null, blockHit, blockIsAir, pickedBlock(), distSqr,
+				blockUsable, blockIsSwitch);
 	}
 
 	/**
@@ -139,14 +159,15 @@ public final class RtsOrderHintClient {
 	}
 
 	/**
-	 * The hint's text: the block name for mine, the picked item name for place, the reason when invalid. A spawn
+	 * The hint's text: the block name for mine and use, the picked item name for place, the reason when invalid. A spawn
 	 * or container hint has no kind and uses its key as is.
 	 */
 	public static Component text(RtsOrderHint.Hint hint, RtsSelectionClient.Hover hover) {
 		if (hint.valid()) {
 			Minecraft client = Minecraft.getInstance();
 			BlockHitResult block = hover.block();
-			if (hint.kind() == RtsOrderKind.MINE && block != null && client.level != null) {
+			if ((hint.kind() == RtsOrderKind.MINE || hint.kind() == RtsOrderKind.USE) && block != null
+					&& client.level != null) {
 				return Component.translatable(hint.key(),
 						client.level.getBlockState(block.getBlockPos()).getBlock().getName());
 			}

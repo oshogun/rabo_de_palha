@@ -16,7 +16,7 @@ class RtsCommandPagesTest {
 	 * step.
 	 */
 	private static final List<String> REGISTRY = List.of("move", "mine", "place", "dig", "stop", "spawn", "deposit",
-			"withdraw", "build");
+			"withdraw", "build", "use");
 	private static final Map<String, RtsCommandPage> PAGE_OF = Map.of(
 			"move", RtsCommandPage.ORDERS,
 			"mine", RtsCommandPage.ORDERS,
@@ -26,7 +26,8 @@ class RtsCommandPagesTest {
 			"spawn", RtsCommandPage.ORDERS,
 			"deposit", RtsCommandPage.HAUL_BUILD,
 			"withdraw", RtsCommandPage.HAUL_BUILD,
-			"build", RtsCommandPage.HAUL_BUILD);
+			"build", RtsCommandPage.HAUL_BUILD,
+			"use", RtsCommandPage.GATHER);
 
 	private static RtsCommandPages<String> registry() {
 		return new RtsCommandPages<>(REGISTRY, PAGE_OF::get);
@@ -37,15 +38,16 @@ class RtsCommandPagesTest {
 		RtsCommandPages<String> pages = registry();
 		assertEquals(List.of("move", "mine", "place", "dig", "spawn"), pages.commands(RtsCommandPage.ORDERS));
 		assertEquals(List.of("deposit", "withdraw", "build"), pages.commands(RtsCommandPage.HAUL_BUILD));
+		assertEquals(List.of("use"), pages.commands(RtsCommandPage.GATHER));
 		assertEquals(List.of("stop"), pages.globals());
 	}
 
 	@Test
 	void emptyPagesAreHidden() {
 		RtsCommandPages<String> pages = registry();
-		assertEquals(List.of(RtsCommandPage.ORDERS, RtsCommandPage.HAUL_BUILD), pages.visiblePages());
-		for (RtsCommandPage empty : List.of(RtsCommandPage.FARM, RtsCommandPage.GATHER, RtsCommandPage.MAKE,
-				RtsCommandPage.WORKER)) {
+		assertEquals(List.of(RtsCommandPage.ORDERS, RtsCommandPage.HAUL_BUILD, RtsCommandPage.GATHER),
+				pages.visiblePages());
+		for (RtsCommandPage empty : List.of(RtsCommandPage.FARM, RtsCommandPage.MAKE, RtsCommandPage.WORKER)) {
 			assertTrue(pages.commands(empty).isEmpty(), empty.id());
 			assertEquals(Optional.empty(), pages.slot(empty, 1), empty.id());
 		}
@@ -69,6 +71,7 @@ class RtsCommandPagesTest {
 			assertEquals(Optional.empty(), pages.slot(RtsCommandPage.ORDERS, slot), "orders " + slot);
 		}
 		assertEquals(Optional.empty(), pages.slot(RtsCommandPage.HAUL_BUILD, 4));
+		assertEquals(Optional.of("use"), pages.slot(RtsCommandPage.GATHER, 1));
 		assertEquals(Optional.empty(), pages.slot(RtsCommandPage.ORDERS, 0));
 		assertEquals(Optional.empty(), pages.slot(RtsCommandPage.ORDERS, 10));
 		assertEquals(Optional.empty(), pages.slot(RtsCommandPage.ORDERS, -1));
@@ -106,10 +109,11 @@ class RtsCommandPagesTest {
 		assertEquals(RtsCommandPage.ORDERS, pages.next(RtsCommandPage.FARM));
 		assertEquals(RtsCommandPage.ORDERS, pages.previous(RtsCommandPage.GLOBAL));
 
-		RtsCommandPages<String> two = registry();
-		assertEquals(RtsCommandPage.HAUL_BUILD, two.next(RtsCommandPage.ORDERS));
-		assertEquals(RtsCommandPage.ORDERS, two.next(RtsCommandPage.HAUL_BUILD));
-		assertEquals(RtsCommandPage.HAUL_BUILD, two.previous(RtsCommandPage.ORDERS));
+		RtsCommandPages<String> three = registry();
+		assertEquals(RtsCommandPage.HAUL_BUILD, three.next(RtsCommandPage.ORDERS));
+		assertEquals(RtsCommandPage.GATHER, three.next(RtsCommandPage.HAUL_BUILD));
+		assertEquals(RtsCommandPage.ORDERS, three.next(RtsCommandPage.GATHER));
+		assertEquals(RtsCommandPage.GATHER, three.previous(RtsCommandPage.ORDERS));
 	}
 
 	@Test
@@ -162,5 +166,6 @@ class RtsCommandPagesTest {
 	void pagesHaveLangKeys() {
 		assertEquals("rabodepalha.rts.page.orders", RtsCommandPage.ORDERS.langKey());
 		assertEquals("rabodepalha.rts.page.haul_build", RtsCommandPage.HAUL_BUILD.langKey());
+		assertEquals("rabodepalha.rts.page.gather", RtsCommandPage.GATHER.langKey());
 	}
 }
