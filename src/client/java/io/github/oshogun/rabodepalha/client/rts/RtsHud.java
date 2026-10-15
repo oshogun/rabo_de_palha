@@ -160,10 +160,13 @@ public final class RtsHud {
 		RtsSelectionClient.Hover hover = RtsSelectionClient.hover();
 		RtsDigArea digArea = RtsCommandClient.digArea();
 		RtsDigArea plantArea = RtsCommandClient.plantArea();
+		RtsDigArea harvestArea = RtsCommandClient.harvestArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
 		} else if (plantArea != null) {
 			extractPlantArea(graphics, client, plantArea, y);
+		} else if (harvestArea != null) {
+			extractHarvestArea(graphics, client, harvestArea, y);
 		} else if (hover != null && hovered == null && hoveredTab == null && panelHit instanceof RtsPanel.Hit.None
 				&& viewHit instanceof RtsContainerPanel.Hit.None && pickerHit instanceof RtsBlueprintPicker.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
@@ -636,6 +639,17 @@ public final class RtsHud {
 		}
 		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
 		extractAreaLabel(graphics, client, area, field.label(), RtsOrdersClient.plantProblem(area), hint, y);
+	}
+
+	/** While a field is being dragged for Harvest: the same as {@link #extractPlantArea}, with Harvest's hint. */
+	private static void extractHarvestArea(GuiGraphicsExtractor graphics, Minecraft client, RtsDigArea area, int y) {
+		Component hint = Component.translatable("rabodepalha.rts.harvest.hint.drag");
+		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+		if (armed != null) {
+			hint = Component.empty().append(armed.displayName()).append(": ").append(hint);
+		}
+		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+		extractAreaLabel(graphics, client, area, field.label(), RtsOrdersClient.harvestProblem(area), hint, y);
 	}
 
 	/**

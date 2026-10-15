@@ -9,6 +9,7 @@ import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -319,6 +320,20 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 			spawnAtLocation(serverLevel, remainder.copy());
 		}
 		return remainder;
+	}
+
+	/** Whether all of {@code stacks} would fit in the inventory together; simulated on a copy, nothing is changed. */
+	public boolean fitsAll(List<ItemStack> stacks) {
+		SimpleContainer scratch = new SimpleContainer(INVENTORY_SIZE);
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			scratch.setItem(i, inventory.getItem(i).copy());
+		}
+		for (ItemStack stack : stacks) {
+			if (!scratch.addItem(stack.copy()).isEmpty()) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public boolean hasItem(Item item) {

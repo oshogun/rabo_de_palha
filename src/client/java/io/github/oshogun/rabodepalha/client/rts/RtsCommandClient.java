@@ -294,7 +294,18 @@ public final class RtsCommandClient {
 
 	/** The flat area being dragged for Plant, between the two picked blocks, or null. */
 	public static @Nullable RtsDigArea plantArea() {
-		return DRAG.flat() ? DRAG.area() : null;
+		return flatArea(RtsCommands.PLANT);
+	}
+
+	/** The flat area being dragged for Harvest, between the two picked blocks, or null. */
+	public static @Nullable RtsDigArea harvestArea() {
+		return flatArea(RtsCommands.HARVEST);
+	}
+
+	/** The flat area being dragged while command {@code id} is armed, or null. */
+	private static @Nullable RtsDigArea flatArea(String id) {
+		RtsCommands.RtsCommand command = STATE.armed();
+		return DRAG.flat() && command != null && command.id().equals(id) ? DRAG.area() : null;
 	}
 
 	/** Why the armed area command would be rejected over {@code area}, if the client sees a reason. */

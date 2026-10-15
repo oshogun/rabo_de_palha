@@ -22,6 +22,7 @@ commanded that worker.
 /rdp withdraw <pos> <item> [count] [workers]
 /rdp build <origin> <blueprint> [rotation] [workers]
 /rdp plant <from> <to> <seed> [workers]
+/rdp harvest <from> <to> [workers]
 /rdp queue [workers]
 /rdp clear [workers]
 ```
@@ -53,6 +54,16 @@ in the way are cleared, anything else is skipped and counted. The worker uses up
 block. Running out of seeds or hoes ends the task with counts (`planted 40 of 64: out of wheat
 seeds`). If part of the field is not near water the task still succeeds but warns that those crops
 grow slowly. Workers never trample farmland, whatever `mobGriefing` says.
+
+`harvest` walks the same field rectangle (same area rules and caps as `plant`) and harvests only
+ripe plants into the worker's inventory, by hand and without dropping items. Unripe plants are left
+alone. Wheat, carrots, potatoes, beetroot (max age), nether wart (age 3) and cocoa (age 2) are
+replanted from the drops or inventory (cocoa faces the same log); melons and pumpkins are broken
+and their stem kept; sugar cane, cactus and bamboo are cut above the base, which stays; sweet berry
+bushes older than age 1 are picked and reset to age 1. Torchflowers, pitcher plants and bamboo
+saplings are out of scope. When the inventory can't hold a plant's drops the task fails with a
+partial result (`harvested 30, inventory full`) and leaves that plant standing. The report gives
+harvested, replanted and unripe counts.
 
 Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.
@@ -125,6 +136,11 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
     queue it after the current orders); right-click or `Esc` cancels. The overlay tints each ground block: amber to be tilled (or cleared), green to be
     planted, red skipped; the whole field turns red when over 1024 columns or 16 blocks of height
     difference. Same range and loaded-chunk limits as Dig.
+  - Harvest (Farm page; no default key, bind `Harvest Area` in the controls) harvests the ripe
+    plants in a field. Left-drag the rectangle on the ground; there is no depth step and no seed to
+    pick. Release to harvest (hold `Shift` when releasing to queue it after the current orders);
+    right-click or `Esc` cancels. The overlay boxes each ripe plant in green (a stalk from its base
+    to its top); unripe plants are not marked. The field turns red over the same caps as Plant.
   - Build (`Y` or the Build button) opens a blueprint picker (saved-in-world templates first, then
     pack ones; tick the toggle to also list vanilla structures). The picked blueprint stays armed.
     A box shows the footprint at the hovered block, using the same origin and rotation as

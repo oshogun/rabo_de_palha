@@ -33,6 +33,7 @@ class RtsTaskKindTest {
 				Map.entry("withdraw", RtsTaskKind.WITHDRAW),
 				Map.entry("use", RtsTaskKind.USE),
 				Map.entry("plant_field", RtsTaskKind.PLANT),
+				Map.entry("harvest_area", RtsTaskKind.HARVEST),
 				Map.entry("unknown", RtsTaskKind.OTHER));
 		expected.forEach((suffix, kind) -> assertEquals(kind, RtsTaskKind.of(summary("rabodepalha.task." + suffix)), suffix));
 	}

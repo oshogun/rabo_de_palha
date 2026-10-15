@@ -132,7 +132,7 @@ public final class QueuedOrderMarkers {
 		return switch (kind) {
 			case MOVE -> column(first);
 			case MINE, PLACE, DEPOSIT, WITHDRAW, USE -> block(first);
-			case DIG, PLANT -> targets.size() >= 2 ? box(targets.get(0), targets.get(1)) : block(first);
+			case DIG, PLANT, HARVEST -> targets.size() >= 2 ? box(targets.get(0), targets.get(1)) : block(first);
 			case BUILD -> targets.size() >= 3 ? box(targets.get(1), targets.get(2)) : column(first);
 			case OTHER -> null;
 		};

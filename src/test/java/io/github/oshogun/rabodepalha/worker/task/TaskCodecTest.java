@@ -230,6 +230,35 @@ class TaskCodecTest {
 	}
 
 	@Test
+	void harvestAreaRoundTrips() {
+		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+			HarvestAreaTask task = assertInstanceOf(HarvestAreaTask.class,
+					roundTrip(ops, new HarvestAreaTask(new BlockPos(4, 70, -2), new BlockPos(1, 68, -5))));
+			assertEquals(new BlockPos(4, 70, -2), task.from());
+			assertEquals(new BlockPos(1, 68, -5), task.to());
+		}
+	}
+
+	@Test
+	void harvestAreaAtCapDecodes() {
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, harvestAreaJson(new BlockPos(31, 16, 31))).isSuccess());
+	}
+
+	@Test
+	void harvestAreaOverCapIsAnError() {
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, harvestAreaJson(new BlockPos(32, 0, 31))).isError());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, harvestAreaJson(new BlockPos(1, 17, 1))).isError());
+	}
+
+	private static JsonObject harvestAreaJson(BlockPos to) {
+		JsonObject json = new JsonObject();
+		json.addProperty("type", HarvestAreaTask.TYPE_ID);
+		json.add("from", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, BlockPos.ZERO).getOrThrow());
+		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, to).getOrThrow());
+		return json;
+	}
+
+	@Test
 	void buildRoundTrips() {
 		Identifier hut = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
 		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {

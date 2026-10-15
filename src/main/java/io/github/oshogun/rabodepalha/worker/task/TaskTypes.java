@@ -124,6 +124,15 @@ public final class TaskTypes {
 					itemName(BuiltInRegistries.ITEM.getKey(task.seed())), pos(task.from()), pos(task.to())),
 					List.of(task.from(), task.to())));
 
+	/** Only the corners: progress is not saved, a loaded task scans the field again. */
+	public static final MapCodec<HarvestAreaTask> HARVEST_AREA = register(HarvestAreaTask.TYPE_ID, HarvestAreaTask.class,
+			RecordCodecBuilder.<HarvestAreaTask>mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("from").forGetter(HarvestAreaTask::from),
+					BlockPos.CODEC.fieldOf("to").forGetter(HarvestAreaTask::to)
+			).apply(instance, HarvestAreaTask::new)).validate(TaskTypes::validateHarvestArea),
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "harvest_area", List.of(pos(task.from()), pos(task.to())),
+					List.of(task.from(), task.to())));
+
 	/**
 	 * Only the parameters: progress is not saved, a loaded task plans the build again. The summary targets
 	 * the origin, then the footprint's min and max corners when the blueprint's size is known.
@@ -182,17 +191,30 @@ public final class TaskTypes {
 	}
 
 	private static DataResult<PlantFieldTask> validatePlantField(PlantFieldTask task) {
-		BlockPos from = task.from();
-		BlockPos to = task.to();
-		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
-		if (field.exceeds()) {
-			return DataResult.error(() -> "Field of " + field.columns() + " columns and rise " + field.rise()
-					+ " exceeds " + RtsField.MAX_COLUMNS + " columns or rise " + RtsField.MAX_RISE);
+		Optional<String> fieldError = validateField(task.from(), task.to());
+		if (fieldError.isPresent()) {
+			return DataResult.error(fieldError::get);
 		}
 		if (!FieldBlocks.isSeed(task.seed())) {
 			return DataResult.error(() -> BuiltInRegistries.ITEM.getKey(task.seed()) + " is not a seed");
 		}
 		return DataResult.success(task);
+	}
+
+	private static DataResult<HarvestAreaTask> validateHarvestArea(HarvestAreaTask task) {
+		return validateField(task.from(), task.to())
+				.<DataResult<HarvestAreaTask>>map(error -> DataResult.error(() -> error))
+				.orElseGet(() -> DataResult.success(task));
+	}
+
+	/** The error for a field over the {@link RtsField} cap, if it is. */
+	private static Optional<String> validateField(BlockPos from, BlockPos to) {
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			return Optional.of("Field of " + field.columns() + " columns and rise " + field.rise()
+					+ " exceeds " + RtsField.MAX_COLUMNS + " columns or rise " + RtsField.MAX_RISE);
+		}
+		return Optional.empty();
 	}
 
 	private static <T extends Task<WorkerEntity>> MapCodec<T> register(String typeId, Class<T> taskClass, MapCodec<T> codec,

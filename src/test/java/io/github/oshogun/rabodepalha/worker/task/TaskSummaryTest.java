@@ -120,6 +120,12 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void harvestAreaTargetsBothCorners() {
+		TaskSummary summary = TaskTypes.summarize(new HarvestAreaTask(POS, OTHER));
+		assertSummary(summary, "rabodepalha.task.harvest_area", List.of(literal(POS), literal(OTHER)), List.of(POS, OTHER));
+	}
+
+	@Test
 	void build() {
 		Identifier blueprint = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
 		TaskSummary summary = TaskTypes.summarize(new BuildTask(POS, blueprint, Rotation.CLOCKWISE_90));

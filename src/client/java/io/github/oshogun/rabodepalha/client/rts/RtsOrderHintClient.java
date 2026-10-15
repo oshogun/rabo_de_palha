@@ -129,6 +129,21 @@ public final class RtsOrderHintClient {
 	}
 
 	/**
+	 * Harvest armed and no field started yet: it needs a selection and a block under the cursor. The field itself
+	 * is checked by {@link RtsOrdersClient#harvestProblem} once it exists. The hint has no kind and uses its key as
+	 * is.
+	 */
+	public static RtsOrderHint.Hint harvest(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (hover.block() == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.harvest.hint.start", true, null);
+	}
+
+	/**
 	 * Building the armed blueprint at the hovered block: it needs a selection, a picked blueprint whose info has
 	 * arrived, and a footprint the server would accept. The hint has no kind and uses its key as is.
 	 */

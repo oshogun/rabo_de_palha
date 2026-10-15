@@ -110,6 +110,8 @@ public final class RtsCommands {
 	public static final String PLACE = "place";
 	/** The plant command's id. */
 	public static final String PLANT = "plant";
+	/** The harvest command's id. */
+	public static final String HARVEST = "harvest";
 
 	public static final List<RtsCommand> COMMANDS = List.of(
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
@@ -144,7 +146,12 @@ public final class RtsCommands {
 			new RtsCommand(PLANT, () -> new ItemStack(Items.WHEAT_SEEDS), InputConstants.UNKNOWN.getValue(),
 					RtsCommandPage.FARM, new Area(RtsOrderHintClient::plant, RtsOrdersClient::sendPlant,
 							area -> Optional.ofNullable(RtsOrdersClient.plantProblem(area)), true),
-					Optional.of(RtsTaskKind.PLANT)));
+					Optional.of(RtsTaskKind.PLANT)),
+			// A flat drag over the field, like Plant; only ripe plants are harvested.
+			new RtsCommand(HARVEST, () -> new ItemStack(Items.WHEAT), InputConstants.UNKNOWN.getValue(),
+					RtsCommandPage.FARM, new Area(RtsOrderHintClient::harvest, RtsOrdersClient::sendHarvest,
+							area -> Optional.ofNullable(RtsOrdersClient.harvestProblem(area)), true),
+					Optional.of(RtsTaskKind.HARVEST)));
 
 	/** {@link #COMMANDS} sorted into bar pages; fails at class load if a page is overfull. */
 	public static final RtsCommandPages<RtsCommand> PAGES = new RtsCommandPages<>(COMMANDS, RtsCommand::page);

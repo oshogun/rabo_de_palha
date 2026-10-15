@@ -75,6 +75,14 @@ class QueuedOrderMarkersTest {
 	}
 
 	@Test
+	void harvestIsABoxBetweenCorners() {
+		Marker marker = only(task("harvest_area", new BlockPos(5, 3, 1), new BlockPos(2, 0, 4)));
+		assertEquals(RtsTaskKind.HARVEST, marker.kind());
+		assertEquals(Shape.BOX, marker.shape());
+		assertEquals(new AABB(2, 0, 1, 6, 4, 5), marker.bounds());
+	}
+
+	@Test
 	void buildIsItsFootprint() {
 		BlockPos origin = new BlockPos(4, 1, 4);
 		Marker marker = only(task("build", origin, new BlockPos(1, 1, 4), new BlockPos(4, 3, 5)));

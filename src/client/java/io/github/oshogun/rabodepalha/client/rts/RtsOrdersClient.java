@@ -23,6 +23,7 @@ import io.github.oshogun.rabodepalha.network.RtsBuildPayload;
 import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
+import io.github.oshogun.rabodepalha.network.RtsHarvestPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
@@ -175,6 +176,36 @@ public final class RtsOrdersClient {
 	 * checked before the per-chunk loop.
 	 */
 	public static @Nullable Component plantProblem(RtsDigArea area) {
+		return fieldProblem(area, true);
+	}
+
+	/**
+	 * Harvests the ripe plants in the field between the corners of {@code area} with the selected workers, like
+	 * {@code /rdp harvest <from> <to> [workers]}. The caller has checked {@link #harvestProblem}; the server
+	 * repeats every check.
+	 */
+	public static void sendHarvest(RtsDigArea area, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsHarvestPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsHarvestPayload(RtsSelectionClient.selectedIds(),
+					new BlockPos(area.minX(), area.minY(), area.minZ()),
+					new BlockPos(area.maxX(), area.maxY(), area.maxZ()), shift));
+		}
+	}
+
+	/**
+	 * Why the server would reject harvesting the field between the corners of {@code area}, or {@code null} when
+	 * the client sees no problem. Same checks as {@link #plantProblem} without the seed.
+	 */
+	public static @Nullable Component harvestProblem(RtsDigArea area) {
+		return fieldProblem(area, false);
+	}
+
+	/** The field checks shared by Plant and Harvest, in the server's order; the seed is checked only for Plant. */
+	private static @Nullable Component fieldProblem(RtsDigArea area, boolean needsSeed) {
 		Minecraft client = Minecraft.getInstance();
 		LocalPlayer player = client.player;
 		ClientLevel level = client.level;
@@ -188,7 +219,7 @@ public final class RtsOrdersClient {
 		if (field.exceeds()) {
 			return Component.translatable("rabodepalha.rts.order.area_too_large");
 		}
-		if (!RtsItemPickClient.picked().map(FieldBlocks::isSeed).orElse(false)) {
+		if (needsSeed && !RtsItemPickClient.picked().map(FieldBlocks::isSeed).orElse(false)) {
 			return Component.translatable("rabodepalha.rts.order.not_a_seed");
 		}
 		Vec3 eye = player.getEyePosition();

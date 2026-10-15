@@ -8,6 +8,7 @@ import io.github.oshogun.rabodepalha.client.cutaway.Cutaway;
 import io.github.oshogun.rabodepalha.client.rts.RtsBlueprintOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsClient;
 import io.github.oshogun.rabodepalha.client.rts.RtsDigOverlay;
+import io.github.oshogun.rabodepalha.client.rts.RtsHarvestOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsHoverOverlay;
 import io.github.oshogun.rabodepalha.client.rts.RtsHud;
 import io.github.oshogun.rabodepalha.client.rts.RtsPlantOverlay;
@@ -25,6 +26,7 @@ public class RaboDePalhaClient implements ClientModInitializer {
 		RtsQueuedOrdersOverlay.init();
 		RtsDigOverlay.init();
 		RtsPlantOverlay.init();
+		RtsHarvestOverlay.init();
 		RtsBlueprintOverlay.init();
 		RaboDePalha.LOGGER.info("Rabo-de-palha client initialized");
 	}

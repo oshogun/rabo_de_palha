@@ -11,6 +11,7 @@ import io.github.oshogun.rabodepalha.worker.task.BuildTask;
 import io.github.oshogun.rabodepalha.worker.task.DepositTask;
 import io.github.oshogun.rabodepalha.worker.task.DigAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.FieldBlocks;
+import io.github.oshogun.rabodepalha.worker.task.HarvestAreaTask;
 import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
@@ -117,6 +118,9 @@ public final class WorkerCommands {
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(Commands.argument("to", BlockPosArgument.blockPos())
 										.then(withWorkers(Commands.argument("seed", ItemArgument.item(buildContext)), WorkerCommands::plant)))))
+				.then(Commands.literal("harvest")
+						.then(Commands.argument("from", BlockPosArgument.blockPos())
+								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::harvest))))
 				.then(Commands.literal("place")
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
@@ -315,6 +319,16 @@ public final class WorkerCommands {
 		}
 		Item seed = ItemArgument.getItem(ctx, "seed").item().value();
 		return enqueue(ctx, workers, () -> new PlantFieldTask(from, to, seed));
+	}
+
+	private static int harvest(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers) throws CommandSyntaxException {
+		BlockPos from = BlockPosArgument.getLoadedBlockPos(ctx, "from");
+		BlockPos to = BlockPosArgument.getLoadedBlockPos(ctx, "to");
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			throw FIELD_TOO_LARGE.create(field.label() + " columns, " + field.rise() + " rise");
+		}
+		return enqueue(ctx, workers, () -> new HarvestAreaTask(from, to));
 	}
 
 	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */
