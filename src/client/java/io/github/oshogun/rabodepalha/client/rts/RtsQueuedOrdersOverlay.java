@@ -20,7 +20,8 @@ import io.github.oshogun.rabodepalha.rts.WorkerSnapshot;
 /**
  * Draws the selected workers' current and queued orders in RTS mode, from their latest snapshots: the
  * markers {@link QueuedOrderMarkers} builds, and lines from each worker through its targets in queue order.
- * The current task is filled; queued ones are outlined in a dimmed colour. Nothing is cached, so a finished
+ * The current task is filled; queued ones are outlined in a dimmed colour, except a repeating order, which
+ * stays filled while appended orders run before it. Nothing is cached, so a finished
  * task's marker goes when the next snapshot arrives. Only watched workers have snapshots, so at most the
  * first {@link io.github.oshogun.rabodepalha.network.RtsWatchPayload#MAX_WATCHED} selected workers show
  * markers.
@@ -64,16 +65,21 @@ public final class RtsQueuedOrdersOverlay {
 		Vec3 camera = ctx.levelState().cameraRenderState.pos;
 		QueuedOrderMarkers.Markers markers = QueuedOrderMarkers.build(workers, camera, QueuedOrderMarkers.Limits.DEFAULT);
 		for (QueuedOrderMarkers.Marker marker : markers.markers()) {
-			int fill = marker.current() ? RtsOrderColors.fill(marker.kind()) : 0;
+			// A repeating order waiting behind appended ones is still filled, so it reads as ongoing, not stuck.
+			boolean filled = marker.current() || marker.repeating();
+			int fill = filled ? RtsOrderColors.fill(marker.kind()) : 0;
 			switch (marker.shape()) {
 				case COLUMN, BOX -> WorldOverlay.box(ctx, marker.bounds(), marker.argb(), fill);
 				case BLOCK -> {
-					if (marker.current()) {
+					if (filled) {
 						WorldOverlay.box(ctx, marker.bounds(), marker.argb(), fill);
 					} else {
 						WorldOverlay.outlineBlock(ctx, BlockPos.containing(marker.anchor()), marker.argb());
 					}
 				}
+			}
+			if (marker.outline() != null) {
+				WorldOverlay.outlineBlock(ctx, marker.outline(), marker.argb());
 			}
 		}
 		List<WorldOverlay.Line> lines = new ArrayList<>(markers.segments().size());

@@ -19,6 +19,7 @@ import io.github.oshogun.rabodepalha.network.RtsContentsRequestPayload;
 import io.github.oshogun.rabodepalha.network.RtsDepositPayload;
 import io.github.oshogun.rabodepalha.network.RtsDigPayload;
 import io.github.oshogun.rabodepalha.network.RtsHarvestPayload;
+import io.github.oshogun.rabodepalha.network.RtsTendPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderFeedbackPayload;
 import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
@@ -42,6 +43,7 @@ import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.PlantFieldTask;
+import io.github.oshogun.rabodepalha.worker.task.TendFarmTask;
 import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
@@ -184,6 +186,26 @@ public final class RtsOrders {
 	public static Result handleHarvest(ServerPlayer player, RtsHarvestPayload payload, PermissionSet permissions,
 			double maxTargetDistance, double maxWorkerDistance) {
 		return sendFeedback(player, applyHarvest(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
+	}
+
+	/** Entry point for the client's tend order. */
+	public static Result handleTend(ServerPlayer player, RtsTendPayload payload) {
+		return handleTend(player, payload, player.permissions());
+	}
+
+	/**
+	 * Gives each selected worker a {@link TendFarmTask} over the payload's field, like {@code /rdp tend <from> <to>
+	 * [container] [workers]}, then sends the feedback. Rejected like {@link #handleHarvest}, and also when the picked
+	 * container is too far, not loaded or not a container.
+	 */
+	public static Result handleTend(ServerPlayer player, RtsTendPayload payload, PermissionSet permissions) {
+		return handleTend(player, payload, permissions, MAX_TARGET_DISTANCE, MAX_WORKER_DISTANCE);
+	}
+
+	/** As {@link #handleTend(ServerPlayer, RtsTendPayload, PermissionSet)}, with explicit distance limits (for tests). */
+	public static Result handleTend(ServerPlayer player, RtsTendPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		return sendFeedback(player, applyTend(player, payload, permissions, maxTargetDistance, maxWorkerDistance));
 	}
 
 	/** Entry point for the client's spawn order. */
@@ -602,6 +624,51 @@ public final class RtsOrders {
 				payload.append() ? "rabodepalha.rts.order.harvest_queued" : "rabodepalha.rts.order.harvest_replaced",
 				field.sizeX(), field.sizeZ(), workers.valid().size());
 		return assign(player, workers, payload.append(), () -> new HarvestAreaTask(from, to), applied);
+	}
+
+	private static Result applyTend(ServerPlayer player, RtsTendPayload payload, PermissionSet permissions,
+			double maxTargetDistance, double maxWorkerDistance) {
+		Result playerProblem = checkPlayer(player, permissions);
+		if (playerProblem != null) {
+			return playerProblem;
+		}
+		List<Integer> ids = payload.workerIds();
+		if (ids.isEmpty() || ids.size() > MAX_IDS) {
+			return reject("rabodepalha.rts.order.no_workers");
+		}
+
+		ServerLevel level = player.level();
+		BlockPos from = payload.from().immutable();
+		BlockPos to = payload.to().immutable();
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		Result boundsProblem = checkFieldBounds(level, field);
+		if (boundsProblem != null) {
+			return boundsProblem;
+		}
+		RtsDigArea area = RtsDigArea.between(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		Result reachProblem = checkFieldReach(player, level, field, area, maxTargetDistance);
+		if (reachProblem != null) {
+			return reachProblem;
+		}
+		Optional<BlockPos> container = payload.container().map(BlockPos::immutable);
+		if (container.isPresent()) {
+			// The player clicked it, so a miss is rejected now; a container that goes away later is the task's to report.
+			Result containerProblem = checkContainer(player, level, container.get(), maxTargetDistance);
+			if (containerProblem != null) {
+				return containerProblem;
+			}
+		}
+
+		Workers workers = resolveWorkers(level, ids, new Vec3(area.centerX(), area.centerY(), area.centerZ()),
+				maxWorkerDistance);
+		if (workers.valid().isEmpty()) {
+			return workers.noneValid();
+		}
+		// Args: size x, size z, worker count.
+		Component applied = Component.translatable(
+				payload.append() ? "rabodepalha.rts.order.tend_queued" : "rabodepalha.rts.order.tend_replaced",
+				field.sizeX(), field.sizeZ(), workers.valid().size());
+		return assign(player, workers, payload.append(), () -> new TendFarmTask(from, to, container), applied);
 	}
 
 	/** Rejects fields whose window is outside the world or that are over the field cap; null when they fit. */

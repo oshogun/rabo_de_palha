@@ -16,6 +16,7 @@ import io.github.oshogun.rabodepalha.worker.task.MineTask;
 import io.github.oshogun.rabodepalha.worker.task.MoveToTask;
 import io.github.oshogun.rabodepalha.worker.task.PlaceTask;
 import io.github.oshogun.rabodepalha.worker.task.PlantFieldTask;
+import io.github.oshogun.rabodepalha.worker.task.TendFarmTask;
 import io.github.oshogun.rabodepalha.worker.task.UseTask;
 import io.github.oshogun.rabodepalha.worker.task.WithdrawTask;
 
@@ -121,6 +122,14 @@ public final class WorkerCommands {
 				.then(Commands.literal("harvest")
 						.then(Commands.argument("from", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos()), WorkerCommands::harvest))))
+				// As for "give" below, "container" goes before "workers".
+				.then(Commands.literal("tend")
+						.then(Commands.argument("from", BlockPosArgument.blockPos())
+								.then(withWorkers(Commands.argument("to", BlockPosArgument.blockPos())
+												.then(withWorkers(Commands.argument("container", BlockPosArgument.blockPos()),
+														(ctx, workers) -> tend(ctx, workers,
+																Optional.of(BlockPosArgument.getLoadedBlockPos(ctx, "container"))))),
+										(ctx, workers) -> tend(ctx, workers, Optional.empty())))))
 				.then(Commands.literal("place")
 						.then(Commands.argument("pos", BlockPosArgument.blockPos())
 								.then(withWorkers(Commands.argument("block", BlockStateArgument.block(buildContext)),
@@ -329,6 +338,18 @@ public final class WorkerCommands {
 			throw FIELD_TOO_LARGE.create(field.label() + " columns, " + field.rise() + " rise");
 		}
 		return enqueue(ctx, workers, () -> new HarvestAreaTask(from, to));
+	}
+
+	/** The container is not checked here: the task reports a missing or full one to commanders once. */
+	private static int tend(CommandContext<CommandSourceStack> ctx, List<WorkerEntity> workers, Optional<BlockPos> container)
+			throws CommandSyntaxException {
+		BlockPos from = BlockPosArgument.getLoadedBlockPos(ctx, "from");
+		BlockPos to = BlockPosArgument.getLoadedBlockPos(ctx, "to");
+		RtsField field = RtsField.of(from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ());
+		if (field.exceeds()) {
+			throw FIELD_TOO_LARGE.create(field.label() + " columns, " + field.rise() + " rise");
+		}
+		return enqueue(ctx, workers, () -> new TendFarmTask(from, to, container));
 	}
 
 	/** The item of the "item" argument. Components are rejected: deposit and withdraw match by item only. */

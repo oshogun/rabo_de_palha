@@ -144,6 +144,26 @@ public final class RtsOrderHintClient {
 	}
 
 	/**
+	 * Tend armed and no field started yet: the same as {@link #harvest}. The field is checked by
+	 * {@link RtsOrdersClient#tendProblem} once it exists.
+	 */
+	public static RtsOrderHint.Hint tend(RtsSelectionClient.Hover hover) {
+		if (RtsSelectionClient.count() <= 0) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.nothing_selected", false, null);
+		}
+		if (hover.block() == null) {
+			return new RtsOrderHint.Hint("rabodepalha.rts.order.no_target", false, null);
+		}
+		return new RtsOrderHint.Hint("rabodepalha.rts.tend.hint.start", true, null);
+	}
+
+	/** Picking the hovered container for a marked Tend field; Enter skips it. */
+	public static RtsOrderHint.Hint tendContainer(RtsSelectionClient.Hover hover) {
+		return RtsOrderHint.evaluateContainer(RtsSelectionClient.count(), isContainer(hover),
+				"rabodepalha.rts.tend.hint.container");
+	}
+
+	/**
 	 * Building the armed blueprint at the hovered block: it needs a selection, a picked blueprint whose info has
 	 * arrived, and a footprint the server would accept. The hint has no kind and uses its key as is.
 	 */

@@ -23,6 +23,7 @@ commanded that worker.
 /rdp build <origin> <blueprint> [rotation] [workers]
 /rdp plant <from> <to> <seed> [workers]
 /rdp harvest <from> <to> [workers]
+/rdp tend <from> <to> [container] [workers]
 /rdp queue [workers]
 /rdp clear [workers]
 ```
@@ -65,7 +66,22 @@ saplings are out of scope. When the inventory can't hold a plant's drops the tas
 partial result (`harvested 30, inventory full`) and leaves that plant standing. The report gives
 harvested, replanted and unripe counts.
 
-Tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
+`tend` is the first repeating order: it tends the same field rectangle until stopped. Each round
+the worker harvests and replants ripe plants, plants empty farmland when it has seeds, re-tills
+farmland that dried to dirt when it has a hoe, then waits near the field and checks again every
+5 seconds (waiting does no pathing or field scans). With a `container`, when the inventory has no
+room it deposits the produce there and goes back to work, keeping its tools and one stack of each
+seed it plants. Without a container, or with a full or non-container one, it keeps replanting but
+stops harvesting and tells its commanders once (not every round).
+
+Repeating-order rules: a worker has at most one, always last in its queue; a new one replaces it.
+Orders appended (`Shift`) while it runs go first, and tending resumes after them (the same for a
+plain order queued behind it). It never succeeds or fails on its own: only Stop, `/rdp clear`, an
+order given without `Shift` (which replaces the queue), or removing it from the panel ends it, and
+it is not reported as finished. The panel and the queued-order
+markers show it as repeating (`↻ repeating`, marker stays filled). It is saved and resumes after a reload.
+
+Other tasks run one at a time in FIFO order; the queue is saved with the worker, and the current
 task restarts from scratch after a reload.
 
 Every walking task paths through closed wooden doors (any door that opens by hand) and fence
@@ -78,7 +94,9 @@ depend on `mobGriefing`.
 
 A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
 7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The
-ticket persists across restarts and goes away when the worker goes idle, dies or is removed. At
+ticket persists across restarts and goes away when the worker has no finite work left, dies or is
+removed. A repeating order (tend) does not hold the ticket by itself, so an idle farm doesn't cost
+server time; it only tends while its chunks are loaded (crops only grow there anyway). At
 most 32 workers (1568 chunks) hold chunks at once; others wait until a slot frees up. `/rdp list`
 shows `chunks loaded`, `chunks not loaded (cap reached)` or `chunks not loaded` for each worker.
 
@@ -141,6 +159,10 @@ restored on exit. Entering needs permission level 2; leaving is always allowed.
     pick. Release to harvest (hold `Shift` when releasing to queue it after the current orders);
     right-click or `Esc` cancels. The overlay boxes each ripe plant in green (a stalk from its base
     to its top); unripe plants are not marked. The field turns red over the same caps as Plant.
+  - Tend (Farm page; no default key, bind `Tend` in the controls) tends a field until stopped.
+    Left-drag the rectangle like Harvest, then left-click a container to deposit produce into, or
+    press `Enter` to skip it. `Shift` when releasing the drag queues it after the current orders;
+    right-click or `Esc` cancels. The field outline stays visible while the worker is selected.
   - Build (`Y` or the Build button) opens a blueprint picker (saved-in-world templates first, then
     pack ones; tick the toggle to also list vanilla structures). The picked blueprint stays armed.
     A box shows the footprint at the hovered block, using the same origin and rotation as

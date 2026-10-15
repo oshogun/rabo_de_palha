@@ -28,6 +28,7 @@ import io.github.oshogun.rabodepalha.network.RtsOrderPayload;
 import io.github.oshogun.rabodepalha.network.RtsPlantPayload;
 import io.github.oshogun.rabodepalha.network.RtsRemoveTaskPayload;
 import io.github.oshogun.rabodepalha.network.RtsSpawnPayload;
+import io.github.oshogun.rabodepalha.network.RtsTendPayload;
 import io.github.oshogun.rabodepalha.network.RtsWithdrawPayload;
 import io.github.oshogun.rabodepalha.network.RtsStopPayload;
 import io.github.oshogun.rabodepalha.rts.BlueprintFootprint;
@@ -204,7 +205,29 @@ public final class RtsOrdersClient {
 		return fieldProblem(area, false);
 	}
 
-	/** The field checks shared by Plant and Harvest, in the server's order; the seed is checked only for Plant. */
+	/**
+	 * Tends the field between the corners of {@code area} until stopped with the selected workers, putting the
+	 * produce in {@code container} when present, like {@code /rdp tend <from> <to> [container] [workers]}. The caller
+	 * has checked {@link #tendProblem}; the server repeats every check.
+	 */
+	public static void sendTend(RtsDigArea area, Optional<BlockPos> container, boolean shift) {
+		if (RtsSelectionClient.count() <= 0) {
+			RtsHud.showFeedback(false, Component.translatable("rabodepalha.rts.order.nothing_selected"));
+			return;
+		}
+		if (ClientPlayNetworking.canSend(RtsTendPayload.TYPE)) {
+			ClientPlayNetworking.send(new RtsTendPayload(RtsSelectionClient.selectedIds(),
+					new BlockPos(area.minX(), area.minY(), area.minZ()),
+					new BlockPos(area.maxX(), area.maxY(), area.maxZ()), container, shift));
+		}
+	}
+
+	/** Why the server would reject tending the field between the corners of {@code area}; the same as Harvest. */
+	public static @Nullable Component tendProblem(RtsDigArea area) {
+		return fieldProblem(area, false);
+	}
+
+	/** The field checks shared by Plant, Harvest and Tend, in the server's order; the seed is checked only for Plant. */
 	private static @Nullable Component fieldProblem(RtsDigArea area, boolean needsSeed) {
 		Minecraft client = Minecraft.getInstance();
 		LocalPlayer player = client.player;

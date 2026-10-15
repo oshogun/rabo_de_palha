@@ -31,6 +31,10 @@ public final class RtsCommandClient {
 	private static final RtsAreaDrag DRAG = new RtsAreaDrag();
 	/** The page whose buttons the bar shows and the slot keys press. */
 	private static RtsCommandPage page = RtsCommands.PAGES.first();
+	/** A marked area waiting for its container step, or null; see {@link RtsCommands.Area#then}. */
+	private static @Nullable RtsDigArea pendingArea;
+	/** Whether Shift was held when {@link #pendingArea} was marked. */
+	private static boolean pendingShift;
 
 	private RtsCommandClient() {
 	}
@@ -57,6 +61,7 @@ public final class RtsCommandClient {
 			return;
 		}
 		DRAG.cancel();
+		cancelPending();
 		STATE.disarm();
 		dropBlueprintUnlessBuild();
 		page = target;
@@ -87,6 +92,7 @@ public final class RtsCommandClient {
 	/** Arms or toggles off {@code command}, dropping any area being marked. */
 	private static void arm(RtsCommands.RtsCommand command) {
 		DRAG.cancel();
+		cancelPending();
 		STATE.arm(command);
 		dropBlueprintUnlessBuild();
 		if (STATE.armed() == command && command.action() instanceof RtsCommands.Armed armed) {
@@ -127,7 +133,11 @@ public final class RtsCommandClient {
 		}
 		RtsCommands.RtsCommand command = STATE.armed();
 		if (command != null && command.action() instanceof RtsCommands.Area area) {
-			onAreaPress(area, x, y, shift);
+			if (pendingArea != null && area.then().isPresent()) {
+				onContainerPress(area.then().get(), x, y);
+			} else {
+				onAreaPress(area, x, y, shift);
+			}
 			return true;
 		}
 		if (command == null || !(command.action() instanceof RtsCommands.Armed armed)) {
@@ -187,8 +197,57 @@ public final class RtsCommandClient {
 	}
 
 	/**
+	 * A left press while a marked area waits for its container: a valid container fires the order with it; any
+	 * other block shows why and keeps waiting.
+	 */
+	private static void onContainerPress(RtsCommands.ContainerStep step, double x, double y) {
+		RtsSelectionClient.Hover hover = RtsSelectionClient.hoverAt(x, y);
+		RtsOrderHint.Hint hint = step.hint().apply(hover);
+		BlockHitResult block = hover.block();
+		if (!hint.valid() || block == null) {
+			RtsHud.showFeedback(false, RtsOrderHintClient.text(hint, hover));
+			return;
+		}
+		firePending(step, Optional.of(block.getBlockPos()));
+	}
+
+	/**
+	 * Handles Enter: a marked area waiting for its container fires with none. Returns true if it did, which
+	 * consumes the key.
+	 */
+	public static boolean onEnter() {
+		RtsCommands.RtsCommand command = STATE.armed();
+		if (pendingArea == null || command == null || !(command.action() instanceof RtsCommands.Area area)
+				|| area.then().isEmpty()) {
+			return false;
+		}
+		firePending(area.then().get(), Optional.empty());
+		return true;
+	}
+
+	/** Fires the pending area with {@code container} and the Shift held when it was marked. */
+	private static void firePending(RtsCommands.ContainerStep step, Optional<BlockPos> container) {
+		RtsDigArea area = pendingArea;
+		boolean shift = pendingShift;
+		cancelPending();
+		if (area != null) {
+			step.fire().fire(area, container, shift);
+			STATE.onLeftClick(true, shift);
+		}
+	}
+
+	/** Drops a marked area waiting for its container; returns true if there was one. */
+	private static boolean cancelPending() {
+		boolean had = pendingArea != null;
+		pendingArea = null;
+		pendingShift = false;
+		return had;
+	}
+
+	/**
 	 * Handles a left release. Returns true if it ended an area drag. A depth area then enters its depth step; a
-	 * flat area fires at once with {@code shift}, or shows why it cannot and is dropped, keeping the mode armed.
+	 * flat area fires at once with {@code shift}, or shows why it cannot and is dropped, keeping the mode armed. A
+	 * flat area with a container step waits for the container instead of firing.
 	 */
 	public static boolean onLeftRelease(boolean shift) {
 		if (!DRAG.release()) {
@@ -201,6 +260,9 @@ public final class RtsCommandClient {
 				Optional<Component> problem = area.problem().apply(confirmed);
 				if (problem.isPresent()) {
 					RtsHud.showFeedback(false, problem.get());
+				} else if (area.pickContainer()) {
+					pendingArea = confirmed;
+					pendingShift = shift;
 				} else {
 					area.fire().accept(confirmed, shift);
 					STATE.onLeftClick(true, shift);
@@ -262,7 +324,7 @@ public final class RtsCommandClient {
 	 * Returns true if it did either; false means the caller sends a plain move.
 	 */
 	public static boolean onRightClick() {
-		boolean handled = DRAG.cancel() || STATE.onRightClick();
+		boolean handled = cancelPending() || DRAG.cancel() || STATE.onRightClick();
 		dropBlueprintUnlessBuild();
 		return handled;
 	}
@@ -272,7 +334,7 @@ public final class RtsCommandClient {
 	 * if it did either, which consumes the key.
 	 */
 	public static boolean onEscape() {
-		boolean handled = DRAG.cancel() || STATE.onEscape();
+		boolean handled = cancelPending() || DRAG.cancel() || STATE.onEscape();
 		dropBlueprintUnlessBuild();
 		return handled;
 	}
@@ -300,6 +362,17 @@ public final class RtsCommandClient {
 	/** The flat area being dragged for Harvest, between the two picked blocks, or null. */
 	public static @Nullable RtsDigArea harvestArea() {
 		return flatArea(RtsCommands.HARVEST);
+	}
+
+	/** The flat area being dragged for Tend, between the two picked blocks, or null. */
+	public static @Nullable RtsDigArea tendArea() {
+		return flatArea(RtsCommands.TEND);
+	}
+
+	/** The Tend field marked and waiting for its container, or null. */
+	public static @Nullable RtsDigArea pendingTendArea() {
+		RtsCommands.RtsCommand command = STATE.armed();
+		return command != null && command.id().equals(RtsCommands.TEND) ? pendingArea : null;
 	}
 
 	/** The flat area being dragged while command {@code id} is armed, or null. */
@@ -347,6 +420,9 @@ public final class RtsCommandClient {
 			return armed.hint().apply(hover);
 		}
 		if (command != null && command.action() instanceof RtsCommands.Area area) {
+			if (pendingArea != null && area.then().isPresent()) {
+				return area.then().get().hint().apply(hover);
+			}
 			return area.hint().apply(hover);
 		}
 		return RtsOrderHintClient.rightClick(hover);
@@ -355,6 +431,7 @@ public final class RtsCommandClient {
 	/** Disarms any armed command, when RTS mode ends or a screen opens. */
 	public static void clear() {
 		DRAG.cancel();
+		cancelPending();
 		STATE.disarm();
 		RtsBlueprintsClient.clear();
 	}

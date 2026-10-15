@@ -13,7 +13,8 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Turns the selected workers' snapshots into the markers drawn for their current and queued tasks: a column
- * for a move, a block for mine, place, deposit, withdraw and use, a box for a dig area and a build's footprint.
+ * for a move, a block for mine, place, deposit, withdraw and use, a box for a dig area and a build's footprint,
+ * and a box for a tended field with its container outlined.
  * Lines join each worker to its current target and then its queued targets in order. The current task gets
  * its kind's full colour, queued ones a dimmed one ({@link RtsOrderColors}).
  *
@@ -55,9 +56,11 @@ public final class QueuedOrderMarkers {
 	 * @param anchor where lines join the marker
 	 * @param workerIndex the worker's index in the input
 	 * @param order the task's position in the worker's list: 0 for the current task, then the queue in order
+	 * @param repeating whether the task is a repeating order, which stays queued while other orders run
+	 * @param outline an extra block outlined with the marker, such as a tend order's container; null for none
 	 */
 	public record Marker(RtsTaskKind kind, Shape shape, AABB bounds, Vec3 anchor, int argb, boolean current,
-			int workerIndex, int order) {
+			int workerIndex, int order, boolean repeating, @Nullable BlockPos outline) {
 	}
 
 	/** A line between two consecutive points of a worker's chain, in the colour of the marker it leads to. */
@@ -109,7 +112,8 @@ public final class QueuedOrderMarkers {
 				}
 				boolean current = hasCurrent && order == 0;
 				int argb = current ? RtsOrderColors.line(kind) : RtsOrderColors.dimmed(RtsOrderColors.line(kind));
-				markers.add(new Marker(kind, placed.shape(), placed.bounds(), placed.anchor(), argb, current, w, order));
+				markers.add(new Marker(kind, placed.shape(), placed.bounds(), placed.anchor(), argb, current, w, order,
+						summary.repeating(), placed.outline()));
 				emitted++;
 				if (previous != null) {
 					segments.add(new Segment(previous, placed.anchor(), argb, current));
@@ -120,7 +124,14 @@ public final class QueuedOrderMarkers {
 		return new Markers(markers, segments);
 	}
 
-	private record Placed(Shape shape, AABB bounds, Vec3 anchor) {
+	private record Placed(Shape shape, AABB bounds, Vec3 anchor, @Nullable BlockPos outline) {
+		Placed(Shape shape, AABB bounds, Vec3 anchor) {
+			this(shape, bounds, anchor, null);
+		}
+
+		Placed withOutline(BlockPos pos) {
+			return new Placed(shape, bounds, anchor, pos);
+		}
 	}
 
 	/** The shape drawn for a task of {@code kind} with {@code targets}, or null when it has nothing to draw. */
@@ -134,6 +145,11 @@ public final class QueuedOrderMarkers {
 			case MINE, PLACE, DEPOSIT, WITHDRAW, USE -> block(first);
 			case DIG, PLANT, HARVEST -> targets.size() >= 2 ? box(targets.get(0), targets.get(1)) : block(first);
 			case BUILD -> targets.size() >= 3 ? box(targets.get(1), targets.get(2)) : column(first);
+			// The field, and the container when it has one.
+			case TEND -> {
+				Placed field = targets.size() >= 2 ? box(targets.get(0), targets.get(1)) : block(first);
+				yield targets.size() >= 3 ? field.withOutline(targets.get(2)) : field;
+			}
 			case OTHER -> null;
 		};
 	}

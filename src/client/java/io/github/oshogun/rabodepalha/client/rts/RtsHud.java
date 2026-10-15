@@ -161,12 +161,15 @@ public final class RtsHud {
 		RtsDigArea digArea = RtsCommandClient.digArea();
 		RtsDigArea plantArea = RtsCommandClient.plantArea();
 		RtsDigArea harvestArea = RtsCommandClient.harvestArea();
+		RtsDigArea tendArea = RtsCommandClient.tendArea();
 		if (digArea != null) {
 			extractDigArea(graphics, client, digArea, y);
 		} else if (plantArea != null) {
 			extractPlantArea(graphics, client, plantArea, y);
 		} else if (harvestArea != null) {
 			extractHarvestArea(graphics, client, harvestArea, y);
+		} else if (tendArea != null) {
+			extractTendArea(graphics, client, tendArea, y);
 		} else if (hover != null && hovered == null && hoveredTab == null && panelHit instanceof RtsPanel.Hit.None
 				&& viewHit instanceof RtsContainerPanel.Hit.None && pickerHit instanceof RtsBlueprintPicker.Hit.None) {
 			// What a left-click with the armed command, or else a right-click, would do; an invalid hint's key
@@ -480,7 +483,7 @@ public final class RtsHud {
 		for (int i = 0; i < layout.queued().size() && i < snapshot.queued().size(); i++) {
 			RtsCommandBar.Rect row = layout.queued().get(i);
 			RtsCommandBar.Rect remove = layout.remove().get(i);
-			rowText(graphics, font, snapshot.queued().get(i).summary().toComponent(), row, row.w() - remove.w() - 2,
+			rowText(graphics, font, taskText(snapshot.queued().get(i).summary()), row, row.w() - remove.w() - 2,
 					TEXT_COLOR);
 			button(graphics, font, remove, Component.translatable("rabodepalha.rts.panel.remove"),
 					hit instanceof RtsPanel.Hit.Remove r && r.index() == i);
@@ -572,8 +575,17 @@ public final class RtsHud {
 	}
 
 	private static Component currentTask(WorkerSnapshot snapshot) {
-		return snapshot.current().map(TaskSummary::toComponent)
+		return snapshot.current().map(RtsHud::taskText)
 				.orElseGet(() -> Component.translatable("rabodepalha.rts.panel.idle"));
+	}
+
+	/** A task's panel text, tagged when it is a repeating order, so it reads as ongoing rather than stuck. */
+	private static Component taskText(TaskSummary summary) {
+		if (!summary.repeating()) {
+			return summary.toComponent();
+		}
+		return Component.empty().append(summary.toComponent()).append(" ")
+				.append(Component.translatable("rabodepalha.rts.panel.repeating"));
 	}
 
 	private static Component chunkStatus(WorkerSnapshot.ChunkStatus status) {
@@ -650,6 +662,20 @@ public final class RtsHud {
 		}
 		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
 		extractAreaLabel(graphics, client, area, field.label(), RtsOrdersClient.harvestProblem(area), hint, y);
+	}
+
+	/**
+	 * While a field is being dragged for Tend: the same as {@link #extractPlantArea}, with Tend's hint. Once
+	 * released, the hint line shows the container pick through {@link RtsCommandClient#currentHint}.
+	 */
+	private static void extractTendArea(GuiGraphicsExtractor graphics, Minecraft client, RtsDigArea area, int y) {
+		Component hint = Component.translatable("rabodepalha.rts.tend.hint.drag");
+		RtsCommands.RtsCommand armed = RtsCommandClient.armed();
+		if (armed != null) {
+			hint = Component.empty().append(armed.displayName()).append(": ").append(hint);
+		}
+		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+		extractAreaLabel(graphics, client, area, field.label(), RtsOrdersClient.tendProblem(area), hint, y);
 	}
 
 	/**

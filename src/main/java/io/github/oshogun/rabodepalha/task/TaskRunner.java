@@ -17,6 +17,9 @@ import org.slf4j.LoggerFactory;
  * task starts on the following tick. A RuntimeException thrown by a task becomes
  * {@code Failed(ERROR, e.toString())} (and is logged with its stack trace); a null outcome from
  * {@code tick} becomes {@code Failed(ERROR, "tick returned null")}.
+ *
+ * <p>{@link Task#repeating() Repeating} orders follow the rules documented on that method; with
+ * no repeating task queued the runner is a plain FIFO.
  */
 public class TaskRunner<C> {
 	private static final Logger LOGGER = LoggerFactory.getLogger(TaskRunner.class);
@@ -35,11 +38,37 @@ public class TaskRunner<C> {
 		}
 	}
 
+	/**
+	 * Queues {@code task}. A {@link Task#repeating() repeating} order is always kept last and at most
+	 * one exists: queuing one drops any queued repeating order, and a running one is superseded on
+	 * the next {@link #tick}.
+	 */
 	public void enqueue(Task<C> task) {
-		queue.addLast(new Pending<>(nextId++, Objects.requireNonNull(task, "task")));
+		Objects.requireNonNull(task, "task");
+		if (task.repeating()) {
+			queue.removeIf(entry -> entry.task().repeating());
+			queue.addLast(new Pending<>(nextId++, task));
+			return;
+		}
+		Pending<C> last = queue.peekLast();
+		if (last != null && last.task().repeating()) {
+			queue.pollLast();
+			queue.addLast(new Pending<>(nextId++, task));
+			queue.addLast(last);
+			return;
+		}
+		queue.addLast(new Pending<>(nextId++, task));
 	}
 
 	public void tick(C ctx) {
+		if (current != null && current.repeating() && !queue.isEmpty()) {
+			// enqueue keeps a repeating order last, so a repeating tail means a newer one replaced it.
+			if (queue.peekLast().task().repeating()) {
+				cancelCurrent(ctx, TaskOutcome.Cancelled.Cause.SUPERSEDED);
+			} else {
+				suspendCurrent(ctx);
+			}
+		}
 		if (current == null) {
 			Pending<C> next = queue.pollFirst();
 			started = false;
@@ -122,6 +151,12 @@ public class TaskRunner<C> {
 		return current == null && queue.isEmpty();
 	}
 
+	/** True if the current or any queued task is not {@link Task#repeating() repeating}. */
+	public boolean hasFiniteWork() {
+		return (current != null && !current.repeating())
+				|| queue.stream().anyMatch(entry -> !entry.task().repeating());
+	}
+
 	/** The current task followed by the queued ones, e.g. for saving. */
 	public List<Task<C>> snapshot() {
 		List<Task<C>> all = new ArrayList<>(queue.size() + 1);
@@ -157,6 +192,27 @@ public class TaskRunner<C> {
 			outcome = TaskOutcome.failed(FailureReason.ERROR, e.toString());
 		}
 		notifyListeners(task, outcome);
+	}
+
+	/**
+	 * Moves the current repeating task back to the tail of the queue so the orders appended before
+	 * it run first. It is stopped as cancelled but listeners are not told: it has not ended.
+	 */
+	private void suspendCurrent(C ctx) {
+		Task<C> task = current;
+		boolean wasStarted = started;
+		current = null;
+		started = false;
+		if (wasStarted) {
+			try {
+				task.stop(ctx, true);
+			} catch (RuntimeException e) {
+				LOGGER.warn("Task {} threw while suspending", task.describe(), e);
+				notifyListeners(task, TaskOutcome.failed(FailureReason.ERROR, e.toString()));
+				return;
+			}
+		}
+		queue.addLast(new Pending<>(nextId++, task));
 	}
 
 	private void notifyListeners(Task<C> task, TaskOutcome outcome) {

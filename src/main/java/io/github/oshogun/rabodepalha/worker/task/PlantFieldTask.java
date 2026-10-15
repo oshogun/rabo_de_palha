@@ -153,29 +153,44 @@ public final class PlantFieldTask implements Task<WorkerEntity> {
 			cleared++;
 		}
 		if (plan.action() == FieldBlocks.Action.TILL) {
-			BlockState farmland = Blocks.FARMLAND.defaultBlockState();
-			level.setBlockAndUpdate(ground, farmland);
-			level.playSound(null, ground, SoundEvents.HOE_TILL.value(), SoundSource.BLOCKS, 1.0F, 1.0F);
-			level.gameEvent(GameEvent.BLOCK_CHANGE, ground, GameEvent.Context.of(worker, farmland));
-			// A broken hoe is gone from the inventory, so the next findHoe returns the next one.
-			hoe.hurtAndBreak(1, worker, EquipmentSlot.MAINHAND);
-			worker.getInventory().setChanged();
+			till(worker, ground, hoe);
 		}
 
-		BlockState crop = ((BlockItem) seed).getBlock().defaultBlockState();
-		if (!crop.canSurvive(level, above)) {
+		if (!plant(worker, above, seed)) {
 			skip(ground, "cannot survive there");
 			return TaskOutcome.RUNNING;
 		}
-		worker.consumeOne(seed);
-		level.setBlockAndUpdate(above, crop);
-		level.gameEvent(GameEvent.BLOCK_PLACE, above, GameEvent.Context.of(worker, crop));
-		level.playSound(null, above, SoundEvents.CROP_PLANTED, SoundSource.BLOCKS, 1.0F, 1.0F);
 		planted++;
 		if (level.getBlockState(ground).is(Blocks.FARMLAND) && !FieldBlocks.nearWater(level, ground)) {
 			dry++;
 		}
 		return TaskOutcome.RUNNING;
+	}
+
+	/** Turns {@code ground} into farmland with {@code hoe}, which loses 1 durability. */
+	static void till(WorkerEntity worker, BlockPos ground, ItemStack hoe) {
+		Level level = worker.level();
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState();
+		level.setBlockAndUpdate(ground, farmland);
+		level.playSound(null, ground, SoundEvents.HOE_TILL.value(), SoundSource.BLOCKS, 1.0F, 1.0F);
+		level.gameEvent(GameEvent.BLOCK_CHANGE, ground, GameEvent.Context.of(worker, farmland));
+		// A broken hoe is gone from the inventory, so the next findHoe returns the next one.
+		hoe.hurtAndBreak(1, worker, EquipmentSlot.MAINHAND);
+		worker.getInventory().setChanged();
+	}
+
+	/** Plants one {@code seed} from the inventory at {@code above}; false, with nothing spent, when it can't survive there. */
+	static boolean plant(WorkerEntity worker, BlockPos above, Item seed) {
+		Level level = worker.level();
+		BlockState crop = ((BlockItem) seed).getBlock().defaultBlockState();
+		if (!crop.canSurvive(level, above)) {
+			return false;
+		}
+		worker.consumeOne(seed);
+		level.setBlockAndUpdate(above, crop);
+		level.gameEvent(GameEvent.BLOCK_PLACE, above, GameEvent.Context.of(worker, crop));
+		level.playSound(null, above, SoundEvents.CROP_PLANTED, SoundSource.BLOCKS, 1.0F, 1.0F);
+		return true;
 	}
 
 	/** The outcome that ends the job when the worker lacks what {@code plan} needs, or null. */

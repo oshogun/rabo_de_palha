@@ -90,7 +90,6 @@ public final class HarvestAreaTask implements Task<WorkerEntity> {
 
 	@Override
 	public TaskOutcome tick(WorkerEntity worker) {
-		Level level = worker.level();
 		if (current == null) {
 			current = queue.poll();
 			if (current == null) {
@@ -111,12 +110,48 @@ public final class HarvestAreaTask implements Task<WorkerEntity> {
 		}
 		HarvestBlocks.Target target = current;
 		next(worker);
+		switch (harvest(worker, target)) {
+			case GONE:
+				break;
+			case NO_ROOM:
+				return TaskOutcome.failed(FailureReason.INVENTORY_FULL,
+						"harvested " + harvested + ", inventory full; replanted " + replanted + ", unripe " + unripe + skippedNote());
+			case HARVESTED:
+				harvested++;
+				break;
+			case REPLANTED:
+				harvested++;
+				replanted++;
+				break;
+		}
+		return TaskOutcome.RUNNING;
+	}
+
+	/** What {@link #harvest} did with one plant. */
+	enum Harvest {
+		/** Picked, broken or trampled since the scan, or not on a server: nothing was done. */
+		GONE,
+		/** The drops don't fit in the inventory: the plant was left untouched. */
+		NO_ROOM,
+		/** Harvested, not replanted. */
+		HARVESTED,
+		/** Harvested and replanted. */
+		REPLANTED
+	}
+
+	/**
+	 * Harvests the ripe plant at {@code target} once the worker is in reach: drops go into the inventory,
+	 * crops, nether wart and cocoa are replanted from the drops or the inventory. The ripeness and the room
+	 * for the drops are checked first, so a plant that can't be harvested is left alone.
+	 */
+	static Harvest harvest(WorkerEntity worker, HarvestBlocks.Target target) {
+		Level level = worker.level();
 		BlockPos pos = target.pos();
 		BlockState state = level.getBlockState(pos);
 		// Picked, broken or trampled since the scan: nothing to do.
 		if (HarvestBlocks.ruleOf(state) != target.rule() || !HarvestBlocks.ripeAt(level, pos, state)
 				|| !(level instanceof ServerLevel serverLevel)) {
-			return TaskOutcome.RUNNING;
+			return Harvest.GONE;
 		}
 
 		List<BlockPos> breaks = breakPositions(level, target, state);
@@ -141,8 +176,7 @@ public final class HarvestAreaTask implements Task<WorkerEntity> {
 		}
 		// Checked before anything changes, so a job that can't go on leaves the plant alone.
 		if (!worker.fitsAll(drops)) {
-			return TaskOutcome.failed(FailureReason.INVENTORY_FULL,
-					"harvested " + harvested + ", inventory full; replanted " + replanted + ", unripe " + unripe + skippedNote());
+			return Harvest.NO_ROOM;
 		}
 
 		worker.getLookControl().setLookAt(Vec3.atCenterOf(pos));
@@ -163,7 +197,6 @@ public final class HarvestAreaTask implements Task<WorkerEntity> {
 		for (ItemStack drop : drops) {
 			worker.getInventory().addItem(drop);
 		}
-		harvested++;
 
 		if (replanting) {
 			if (!seedFromDrops) {
@@ -172,9 +205,9 @@ public final class HarvestAreaTask implements Task<WorkerEntity> {
 			level.setBlockAndUpdate(pos, replant);
 			level.gameEvent(GameEvent.BLOCK_PLACE, pos, GameEvent.Context.of(worker, replant));
 			level.playSound(null, pos, plantSound(target.rule()), SoundSource.BLOCKS, 1.0F, 1.0F);
-			replanted++;
+			return Harvest.REPLANTED;
 		}
-		return TaskOutcome.RUNNING;
+		return Harvest.HARVESTED;
 	}
 
 	/**

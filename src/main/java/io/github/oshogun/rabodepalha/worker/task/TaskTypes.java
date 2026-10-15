@@ -134,6 +134,20 @@ public final class TaskTypes {
 					List.of(task.from(), task.to())));
 
 	/**
+	 * Only the corners and the optional container: progress is not saved, a loaded task scans the field
+	 * again. The summary targets both corners, then the container when there is one.
+	 */
+	public static final MapCodec<TendFarmTask> TEND_FARM = register(TendFarmTask.TYPE_ID, TendFarmTask.class,
+			RecordCodecBuilder.<TendFarmTask>mapCodec(instance -> instance.group(
+					BlockPos.CODEC.fieldOf("from").forGetter(TendFarmTask::from),
+					BlockPos.CODEC.fieldOf("to").forGetter(TendFarmTask::to),
+					BlockPos.CODEC.optionalFieldOf("container").forGetter(TendFarmTask::container)
+			).apply(instance, TendFarmTask::new)).validate(TaskTypes::validateTendFarm),
+			(task, sizes) -> new TaskSummary(KEY_PREFIX + "tend_farm", List.of(pos(task.from()), pos(task.to())),
+					task.container().map(container -> List.of(task.from(), task.to(), container))
+							.orElseGet(() -> List.of(task.from(), task.to()))));
+
+	/**
 	 * Only the parameters: progress is not saved, a loaded task plans the build again. The summary targets
 	 * the origin, then the footprint's min and max corners when the blueprint's size is known.
 	 */
@@ -176,7 +190,7 @@ public final class TaskTypes {
 		if (type == null || !type.taskClass().isInstance(task)) {
 			return summary("unknown", List.of(Component.literal(task.typeId())), List.of());
 		}
-		return type.summarize(task, sizes);
+		return type.summarize(task, sizes).withRepeating(task.repeating());
 	}
 
 	/** The origin, then the footprint's min and max corners if the blueprint is known. The origin stays first. */
@@ -204,6 +218,12 @@ public final class TaskTypes {
 	private static DataResult<HarvestAreaTask> validateHarvestArea(HarvestAreaTask task) {
 		return validateField(task.from(), task.to())
 				.<DataResult<HarvestAreaTask>>map(error -> DataResult.error(() -> error))
+				.orElseGet(() -> DataResult.success(task));
+	}
+
+	private static DataResult<TendFarmTask> validateTendFarm(TendFarmTask task) {
+		return validateField(task.from(), task.to())
+				.<DataResult<TendFarmTask>>map(error -> DataResult.error(() -> error))
 				.orElseGet(() -> DataResult.success(task));
 	}
 

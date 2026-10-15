@@ -118,10 +118,15 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	}
 
 	private void notifyCommanders(String message) {
+		reportToCommanders(Component.literal(message));
+	}
+
+	/** Sends {@code message} to every online commander, prefixed with this worker's label. */
+	public void reportToCommanders(Component message) {
 		if (commanders.isEmpty() || !(level() instanceof ServerLevel serverLevel)) {
 			return;
 		}
-		Component text = Component.literal("[").append(label()).append("] ").append(Component.literal(message));
+		Component text = Component.literal("[").append(label()).append("] ").append(message);
 		for (UUID uuid : commanders) {
 			ServerPlayer player = serverLevel.getServer().getPlayerList().getPlayer(uuid);
 			if (player != null) {
@@ -174,11 +179,15 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 
 	/**
 	 * Holds a {@link WorkerChunkTickets} ticket on the worker's current chunk while it has a current or
-	 * queued task, moving it when the worker crosses into another chunk and refreshing it before it
-	 * times out. Releases it once the worker is idle or dying.
+	 * queued one-shot task, moving it when the worker crosses into another chunk and refreshing it before
+	 * it times out. Releases it once the worker has no finite work left or is dying.
+	 *
+	 * <p>A repeating order (e.g. tending a farm) never holds a ticket on its own: it runs while a player
+	 * keeps its chunks loaded and pauses with them otherwise, like vanilla crop growth, so an unattended
+	 * farm costs no server time. One-shot orders queued alongside it still hold the ticket.
 	 */
 	private void updateChunkTicket(ServerLevel level) {
-		if (tasks.isIdle() || !isAlive()) {
+		if (!tasks.hasFiniteWork() || !isAlive()) {
 			releaseChunkTicket(level);
 			return;
 		}

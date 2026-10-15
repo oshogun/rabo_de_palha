@@ -2,6 +2,7 @@ package io.github.oshogun.rabodepalha.rts;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -80,6 +81,38 @@ class QueuedOrderMarkersTest {
 		assertEquals(RtsTaskKind.HARVEST, marker.kind());
 		assertEquals(Shape.BOX, marker.shape());
 		assertEquals(new AABB(2, 0, 1, 6, 4, 5), marker.bounds());
+	}
+
+	@Test
+	void tendIsTheFieldBoxWithTheContainerOutlined() {
+		Marker marker = only(repeating("tend_farm", new BlockPos(5, 3, 1), new BlockPos(2, 0, 4), C));
+		assertEquals(RtsTaskKind.TEND, marker.kind());
+		assertEquals(Shape.BOX, marker.shape());
+		assertEquals(new AABB(2, 0, 1, 6, 4, 5), marker.bounds());
+		assertEquals(C, marker.outline());
+		assertTrue(marker.repeating());
+	}
+
+	@Test
+	void tendWithoutAContainerOutlinesNothing() {
+		Marker marker = only(repeating("tend_farm", new BlockPos(5, 3, 1), new BlockPos(2, 0, 4)));
+		assertEquals(Shape.BOX, marker.shape());
+		assertNull(marker.outline());
+	}
+
+	@Test
+	void oneShotOrdersAreNotRepeatingAndOutlineNothing() {
+		Marker marker = only(task("harvest_area", A, B));
+		assertFalse(marker.repeating());
+		assertNull(marker.outline());
+	}
+
+	@Test
+	void queuedRepeatingOrderKeepsItsFlagBehindAnAppendedOrder() {
+		Markers markers = build(worker(WORKER, task("mine", A), repeating("tend_farm", B, C)));
+		List<Marker> list = markers.markers();
+		assertEquals(List.of(false, true), list.stream().map(Marker::repeating).toList());
+		assertFalse(list.get(1).current());
 	}
 
 	@Test
@@ -269,6 +302,10 @@ class QueuedOrderMarkersTest {
 
 	private static TaskSummary task(String key, BlockPos... targets) {
 		return new TaskSummary("rabodepalha.task." + key, List.of(), List.of(targets));
+	}
+
+	private static TaskSummary repeating(String key, BlockPos... targets) {
+		return new TaskSummary("rabodepalha.task." + key, List.of(), List.of(targets), true);
 	}
 
 	private static void assertSegment(Segment segment, Vec3 from, Vec3 to) {

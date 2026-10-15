@@ -308,6 +308,160 @@ class TaskRunnerTest {
 		assertEquals(5, all.stream().distinct().count());
 	}
 
+	@Test
+	void repeatingTaskNeverFinishesOnItsOwn() {
+		FakeTask farm = repeating("farm");
+		runner.enqueue(farm);
+
+		tick(50);
+
+		assertEquals(farm, runner.current().orElseThrow());
+		assertEquals(1, farm.starts);
+		assertEquals(0, farm.stops);
+		assertTrue(outcomes.isEmpty());
+		assertFalse(runner.hasFiniteWork());
+		assertFalse(runner.isIdle());
+	}
+
+	@Test
+	void appendedTasksRunBeforeRepeatingThenItResumes() {
+		FakeTask farm = repeating("farm");
+		runner.enqueue(farm);
+		tick(3);
+
+		FakeTask a = new FakeTask("a", 2);
+		FakeTask b = new FakeTask("b", 1);
+		runner.enqueue(a);
+		runner.enqueue(b);
+		assertEquals(List.of(a, b), runner.pending());
+		assertTrue(runner.hasFiniteWork());
+		events.clear();
+
+		tick(4);
+
+		assertEquals(List.of(
+				"stop farm true", "start a", "tick a",
+				"tick a", "stop a false", "finished a",
+				"start b", "tick b", "stop b false", "finished b",
+				"start farm", "tick farm"), events);
+		// Suspending is not an outcome: only a and b were reported.
+		assertEquals(2, outcomes.size());
+		assertEquals(farm, runner.current().orElseThrow());
+		assertEquals(2, farm.starts);
+		assertEquals(List.of(true), farm.cancelledFlags);
+		assertFalse(runner.hasFiniteWork());
+	}
+
+	@Test
+	void repeatingTaskStaysLastWhenQueuedBeforeOthers() {
+		FakeTask first = new FakeTask("first", 100);
+		FakeTask farm = repeating("farm");
+		FakeTask later = new FakeTask("later", 1);
+		runner.enqueue(first);
+		runner.enqueue(farm);
+		long farmId = runner.pendingEntries().get(1).id();
+		runner.enqueue(later);
+
+		assertEquals(List.of(first, later, farm), runner.pending());
+		assertEquals(farmId, runner.pendingEntries().get(2).id());
+	}
+
+	@Test
+	void secondRepeatingTaskSupersedesFirst() {
+		FakeTask farm = repeating("farm");
+		runner.enqueue(farm);
+		tick(2);
+
+		FakeTask other = repeating("other");
+		runner.enqueue(other);
+		tick(1);
+
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.SUPERSEDED)), outcomes);
+		assertEquals(List.of(true), farm.cancelledFlags);
+		assertEquals(other, runner.current().orElseThrow());
+		assertTrue(runner.pending().isEmpty());
+	}
+
+	@Test
+	void queuedRepeatingTaskIsReplacedSilently() {
+		FakeTask a = new FakeTask("a", 100);
+		runner.enqueue(a);
+		FakeTask farm = repeating("farm");
+		FakeTask other = repeating("other");
+		runner.enqueue(farm);
+		runner.enqueue(other);
+
+		assertEquals(List.of(a, other), runner.pending());
+		assertEquals(0, farm.starts);
+		assertTrue(outcomes.isEmpty());
+	}
+
+	@Test
+	void clearEndsCurrentRepeatingTask() {
+		FakeTask farm = repeating("farm");
+		runner.enqueue(farm);
+		tick(2);
+
+		runner.clear(CTX, Cause.CLEARED);
+
+		assertTrue(runner.isIdle());
+		assertEquals(List.of(true), farm.cancelledFlags);
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.CLEARED)), outcomes);
+	}
+
+	@Test
+	void clearDropsSuspendedRepeatingTask() {
+		FakeTask farm = repeating("farm");
+		runner.enqueue(farm);
+		tick(2);
+		FakeTask a = new FakeTask("a", 100);
+		runner.enqueue(a);
+		tick(1);
+		assertEquals(a, runner.current().orElseThrow());
+
+		runner.clear(CTX, Cause.CLEARED);
+		tick(3);
+
+		assertTrue(runner.isIdle());
+		// Stopped once when suspended; never restarted.
+		assertEquals(1, farm.stops);
+		assertEquals(1, farm.starts);
+		assertEquals(List.of(new TaskOutcome.Cancelled(Cause.CLEARED)), outcomes);
+	}
+
+	@Test
+	void hasFiniteWorkIgnoresRepeatingTasks() {
+		assertFalse(runner.hasFiniteWork());
+		runner.enqueue(repeating("farm"));
+		assertFalse(runner.hasFiniteWork());
+		runner.enqueue(new FakeTask("a", 1));
+		assertTrue(runner.hasFiniteWork());
+		tick(2);
+		assertFalse(runner.hasFiniteWork());
+	}
+
+	@Test
+	void snapshotAndRestoreKeepRepeatingTaskLast() {
+		FakeTask farm = repeating("farm");
+		FakeTask a = new FakeTask("a", 100);
+		runner.enqueue(farm);
+		tick(1);
+		runner.enqueue(a);
+		// Not ticked yet: the farm is still current.
+		assertEquals(List.of(farm, a), runner.snapshot());
+
+		TaskRunner<Object> restored = new TaskRunner<>();
+		restored.restore(runner.snapshot());
+
+		assertEquals(List.of(a, farm), restored.snapshot());
+	}
+
+	private FakeTask repeating(String name) {
+		FakeTask task = new FakeTask(name, TaskOutcome.RUNNING);
+		task.repeating = true;
+		return task;
+	}
+
 	private void tick(int times) {
 		for (int i = 0; i < times; i++) {
 			runner.tick(CTX);
@@ -326,6 +480,7 @@ class TaskRunnerTest {
 		private boolean throwOnTick;
 		private boolean throwOnStop;
 		private boolean returnNull;
+		private boolean repeating;
 
 		/** Runs for {@code runningTicks - 1} ticks, then succeeds. */
 		FakeTask(String name, int runningTicks) {
@@ -382,6 +537,11 @@ class TaskRunnerTest {
 		@Override
 		public String typeId() {
 			return "fake";
+		}
+
+		@Override
+		public boolean repeating() {
+			return repeating;
 		}
 	}
 }

@@ -259,6 +259,29 @@ class TaskCodecTest {
 	}
 
 	@Test
+	void tendFarmRoundTripsWithAndWithoutContainer() {
+		BlockPos from = new BlockPos(4, 70, -2);
+		BlockPos to = new BlockPos(1, 68, -5);
+		for (Optional<BlockPos> container : List.of(Optional.<BlockPos>empty(), Optional.of(new BlockPos(6, 70, 0)))) {
+			for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {
+				TendFarmTask task = assertInstanceOf(TendFarmTask.class, roundTrip(ops, new TendFarmTask(from, to, container)));
+				assertEquals(from, task.from());
+				assertEquals(to, task.to());
+				assertEquals(container, task.container());
+			}
+		}
+	}
+
+	@Test
+	void tendFarmOverCapIsAnError() {
+		JsonObject json = harvestAreaJson(new BlockPos(32, 0, 31));
+		json.addProperty("type", TendFarmTask.TYPE_ID);
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isError());
+		json.add("to", BlockPos.CODEC.encodeStart(JsonOps.INSTANCE, new BlockPos(31, 16, 31)).getOrThrow());
+		assertTrue(TaskTypes.CODEC.parse(JsonOps.INSTANCE, json).isSuccess());
+	}
+
+	@Test
 	void buildRoundTrips() {
 		Identifier hut = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
 		for (DynamicOps<?> ops : List.of(JsonOps.INSTANCE, NbtOps.INSTANCE)) {

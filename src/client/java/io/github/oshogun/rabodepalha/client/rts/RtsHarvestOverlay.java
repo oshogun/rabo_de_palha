@@ -20,7 +20,8 @@ import io.github.oshogun.rabodepalha.worker.task.HarvestBlocks;
 /**
  * Draws the ripe plants in the field being marked for Harvest in RTS mode: each ripe plant is boxed in
  * green (a stalk from its base to its top), and unripe plants are not marked. A field over the cap is drawn
- * as one red box. The ripe plants are cached per area and refreshed every {@link #REFRESH_TICKS} ticks;
+ * as one red box. The field marked for Tend, while dragged or waiting for its container, is drawn the same way
+ * plus its outline. The ripe plants are cached per area and refreshed every {@link #REFRESH_TICKS} ticks;
  * terrain rendering is untouched, so this works on Sodium.
  */
 public final class RtsHarvestOverlay {
@@ -28,6 +29,7 @@ public final class RtsHarvestOverlay {
 	private static final int RIPE_FILL = 0x3340D040;
 	private static final int INVALID_LINE = 0xFFFF4A4A;
 	private static final int INVALID_FILL = 0x33FF4A4A;
+	private static final int FIELD_LINE = 0xFFE0E0E0;
 	private static final int REFRESH_TICKS = 10;
 
 	private static @Nullable RtsDigArea cachedArea;
@@ -46,16 +48,28 @@ public final class RtsHarvestOverlay {
 			return;
 		}
 		RtsDigArea area = RtsCommandClient.harvestArea();
+		boolean tend = false;
+		if (area == null) {
+			area = RtsCommandClient.tendArea();
+			if (area == null) {
+				area = RtsCommandClient.pendingTendArea();
+			}
+			tend = area != null;
+		}
 		ClientLevel level = Minecraft.getInstance().level;
 		if (area == null || level == null) {
 			cachedArea = null;
 			return;
 		}
 		RtsField field = RtsField.of(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ());
+		AABB box = new AABB(area.minX(), area.minY(), area.minZ(), area.maxX() + 1, area.maxY() + 1, area.maxZ() + 1);
 		if (field.exceeds()) {
-			AABB box = new AABB(area.minX(), area.minY(), area.minZ(), area.maxX() + 1, area.maxY() + 1, area.maxZ() + 1);
 			WorldOverlay.box(ctx, box, INVALID_LINE, INVALID_FILL);
 			return;
+		}
+		if (tend) {
+			// Tend keeps working the whole field, so its outline is drawn as well as the ripe plants.
+			WorldOverlay.box(ctx, box, FIELD_LINE, 0);
 		}
 		long now = level.getGameTime();
 		if (!area.equals(cachedArea) || now - cachedAt >= REFRESH_TICKS || now < cachedAt) {

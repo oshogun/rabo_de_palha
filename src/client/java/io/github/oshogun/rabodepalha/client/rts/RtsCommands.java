@@ -8,6 +8,7 @@ import java.util.function.Supplier;
 
 import com.mojang.blaze3d.platform.InputConstants;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -71,10 +72,39 @@ public final class RtsCommands {
 	 * @param fire carries the mode out on the marked area; the flag is Shift, which queues the order
 	 * @param problem why the server would reject the marked area, if the client sees a reason
 	 * @param flat whether the area is the rectangle between the two picked blocks, with no depth step
+	 * @param then a container step after the area: a flat area then waits for a click on a container, or Enter to
+	 *     skip it, and fires with that instead of {@code fire}
 	 */
 	public record Area(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
 			BiConsumer<RtsDigArea, Boolean> fire, Function<RtsDigArea, Optional<Component>> problem,
-			boolean flat) implements Action {
+			boolean flat, Optional<ContainerStep> then) implements Action {
+		/** An area that fires as soon as it is marked. */
+		public Area(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint,
+				BiConsumer<RtsDigArea, Boolean> fire, Function<RtsDigArea, Optional<Component>> problem,
+				boolean flat) {
+			this(hint, fire, problem, flat, Optional.empty());
+		}
+
+		/** Whether a container is picked after the area is marked. */
+		public boolean pickContainer() {
+			return then.isPresent();
+		}
+	}
+
+	/**
+	 * The container step of an {@link Area}.
+	 *
+	 * @param hint whether the hovered block can be picked as the container
+	 * @param fire carries the order out on the marked area and the picked container, empty when skipped; the flag
+	 *     is Shift, held when the area was marked
+	 */
+	public record ContainerStep(Function<RtsSelectionClient.Hover, RtsOrderHint.Hint> hint, ContainerFire fire) {
+	}
+
+	/** Carries out an area order with an optional container. */
+	@FunctionalInterface
+	public interface ContainerFire {
+		void fire(RtsDigArea area, Optional<BlockPos> container, boolean shift);
 	}
 
 	/**
@@ -112,6 +142,8 @@ public final class RtsCommands {
 	public static final String PLANT = "plant";
 	/** The harvest command's id. */
 	public static final String HARVEST = "harvest";
+	/** The tend command's id. */
+	public static final String TEND = "tend";
 
 	public static final List<RtsCommand> COMMANDS = List.of(
 			order("move", () -> new ItemStack(Items.FEATHER), InputConstants.KEY_M, RtsOrderKind.MOVE),
@@ -151,7 +183,14 @@ public final class RtsCommands {
 			new RtsCommand(HARVEST, () -> new ItemStack(Items.WHEAT), InputConstants.UNKNOWN.getValue(),
 					RtsCommandPage.FARM, new Area(RtsOrderHintClient::harvest, RtsOrdersClient::sendHarvest,
 							area -> Optional.ofNullable(RtsOrdersClient.harvestProblem(area)), true),
-					Optional.of(RtsTaskKind.HARVEST)));
+					Optional.of(RtsTaskKind.HARVEST)),
+			// A flat drag over the field, then a click on the chest for the produce, or Enter for none.
+			new RtsCommand(TEND, () -> new ItemStack(Items.IRON_HOE), InputConstants.UNKNOWN.getValue(),
+					RtsCommandPage.FARM, new Area(RtsOrderHintClient::tend,
+							(area, shift) -> RtsOrdersClient.sendTend(area, Optional.empty(), shift),
+							area -> Optional.ofNullable(RtsOrdersClient.tendProblem(area)), true,
+							Optional.of(new ContainerStep(RtsOrderHintClient::tendContainer, RtsOrdersClient::sendTend))),
+					Optional.of(RtsTaskKind.TEND)));
 
 	/** {@link #COMMANDS} sorted into bar pages; fails at class load if a page is overfull. */
 	public static final RtsCommandPages<RtsCommand> PAGES = new RtsCommandPages<>(COMMANDS, RtsCommand::page);

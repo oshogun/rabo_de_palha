@@ -18,6 +18,7 @@ public enum RtsTaskKind {
 	USE,
 	PLANT,
 	HARVEST,
+	TEND,
 	OTHER;
 
 	/** The kind of the summarised task; an unknown or malformed key is {@link #OTHER}. */
@@ -37,6 +38,7 @@ public enum RtsTaskKind {
 			case "use" -> USE;
 			case "plant_field" -> PLANT;
 			case "harvest_area" -> HARVEST;
+			case "tend_farm" -> TEND;
 			default -> OTHER;
 		};
 	}

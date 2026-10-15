@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.worker.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -126,6 +127,24 @@ class TaskSummaryTest {
 	}
 
 	@Test
+	void oneShotSummaryIsNotRepeating() {
+		assertFalse(TaskTypes.summarize(new HarvestAreaTask(POS, OTHER)).repeating());
+	}
+
+	@Test
+	void tendFarmIsRepeatingAndTargetsCornersThenContainer() {
+		BlockPos chest = new BlockPos(7, 8, 9);
+		TaskSummary bare = TaskTypes.summarize(new TendFarmTask(POS, OTHER, Optional.empty()));
+		assertEquals("rabodepalha.task.tend_farm", bare.key());
+		assertEquals(List.of(literal(POS), literal(OTHER)), bare.args());
+		assertEquals(List.of(POS, OTHER), bare.targets());
+		assertTrue(bare.repeating());
+		TaskSummary withChest = TaskTypes.summarize(new TendFarmTask(POS, OTHER, Optional.of(chest)));
+		assertEquals(List.of(POS, OTHER, chest), withChest.targets());
+		assertTrue(withChest.repeating());
+	}
+
+	@Test
 	void build() {
 		Identifier blueprint = Identifier.fromNamespaceAndPath("rabodepalha", "hut");
 		TaskSummary summary = TaskTypes.summarize(new BuildTask(POS, blueprint, Rotation.CLOCKWISE_90));
@@ -173,6 +192,15 @@ class TaskSummaryTest {
 		TaskSummary summary = new TaskSummary("rabodepalha.task.place",
 				List.of(Blocks.OAK_PLANKS.getName(), literal(POS)), List.of(POS, OTHER, BlockPos.ZERO));
 		assertEquals(summary, roundTrip(summary));
+		assertFalse(roundTrip(summary).repeating());
+	}
+
+	@Test
+	void streamCodecCarriesRepeating() {
+		TaskSummary summary = new TaskSummary("rabodepalha.task.tend_farm", List.of(literal(POS)), List.of(POS, OTHER), true);
+		TaskSummary decoded = roundTrip(summary);
+		assertEquals(summary, decoded);
+		assertTrue(decoded.repeating());
 	}
 
 	@Test

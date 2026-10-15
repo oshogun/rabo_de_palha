@@ -1,6 +1,7 @@
 package io.github.oshogun.rabodepalha.worker.task;
 
 import java.util.Optional;
+import java.util.function.IntPredicate;
 
 import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.Task;
@@ -94,30 +95,21 @@ public final class DepositTask implements Task<WorkerEntity> {
 		}
 
 		SimpleContainer inventory = worker.getInventory();
-		int deposited = 0;
-		int left = 0;
-		int refused = 0;
 		int kept = 0;
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
 			ItemStack stack = inventory.getItem(i);
-			if (stack.isEmpty() || (item != null && !stack.is(item))) {
-				continue;
-			}
 			// Deposit-all leaves the worker its tools, weapons and armor; naming one still deposits it.
 			if (item == null && stack.isDamageableItem()) {
 				kept += stack.getCount();
-				continue;
-			}
-			deposited += Containers.insert(container, stack);
-			if (stack.isEmpty()) {
-				continue;
-			}
-			if (Containers.accepts(container, stack)) {
-				left += stack.getCount();
-			} else {
-				refused += stack.getCount();
 			}
 		}
+		Moved moved = insertSlots(container, inventory, i -> {
+			ItemStack stack = inventory.getItem(i);
+			return item != null ? stack.is(item) : !stack.isDamageableItem();
+		});
+		int deposited = moved.deposited();
+		int left = moved.left();
+		int refused = moved.refused();
 		if (deposited > 0) {
 			inventory.setChanged();
 			worker.getLookControl().setLookAt(Vec3.atCenterOf(pos));
@@ -139,6 +131,36 @@ public final class DepositTask implements Task<WorkerEntity> {
 			return TaskOutcome.failed(FailureReason.ITEM_REFUSED, "deposited " + deposited + ", " + refused + " not accepted");
 		}
 		return TaskOutcome.succeeded("deposited " + deposited + " items" + keptNote(kept));
+	}
+
+	/** What {@link #insertSlots} moved and what it left with the worker. */
+	record Moved(int deposited, int left, int refused) {
+	}
+
+	/**
+	 * Moves the non-empty inventory slots that {@code include} accepts into {@code container}, as far as
+	 * they fit. Counts what moved, what stayed for lack of room and what the slot rules refused.
+	 */
+	static Moved insertSlots(Container container, SimpleContainer inventory, IntPredicate include) {
+		int deposited = 0;
+		int left = 0;
+		int refused = 0;
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (stack.isEmpty() || !include.test(i)) {
+				continue;
+			}
+			deposited += Containers.insert(container, stack);
+			if (stack.isEmpty()) {
+				continue;
+			}
+			if (Containers.accepts(container, stack)) {
+				left += stack.getCount();
+			} else {
+				refused += stack.getCount();
+			}
+		}
+		return new Moved(deposited, left, refused);
 	}
 
 	private static String keptNote(int kept) {

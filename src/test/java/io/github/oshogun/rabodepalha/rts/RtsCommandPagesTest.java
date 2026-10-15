@@ -43,6 +43,16 @@ class RtsCommandPagesTest {
 	}
 
 	@Test
+	void farmPageHoldsPlantHarvestAndTendInOrder() {
+		// Mirrors the Farm entries of RtsCommands.COMMANDS; Tend follows Harvest.
+		RtsCommandPages<String> farm = new RtsCommandPages<>(List.of("plant", "harvest", "tend"),
+				c -> RtsCommandPage.FARM);
+		assertEquals(List.of("plant", "harvest", "tend"), farm.commands(RtsCommandPage.FARM));
+		assertEquals(Optional.of("tend"), farm.slot(RtsCommandPage.FARM, 3));
+		assertTrue(farm.commands(RtsCommandPage.FARM).size() <= RtsCommandPage.MAX_SLOTS);
+	}
+
+	@Test
 	void emptyPagesAreHidden() {
 		RtsCommandPages<String> pages = registry();
 		assertEquals(List.of(RtsCommandPage.ORDERS, RtsCommandPage.HAUL_BUILD, RtsCommandPage.GATHER),
