@@ -197,5 +197,6 @@
   "rabodepalha.rts.panel.chunks_loaded": "(loaded)",
   "rabodepalha.rts.panel.chunks_cap": "(chunk cap)",
   "rabodepalha.rts.panel.chunks_not_loaded": "(not loaded)",
-  "rabodepalha.rts.panel.queued": "Queued (%s):"
+  "rabodepalha.rts.panel.queued": "Queued (%s):",
+  "tag.item.rabodepalha.scaffold_blocks": "Scaffold Blocks"
 }

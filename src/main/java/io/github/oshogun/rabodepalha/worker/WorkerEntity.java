@@ -4,12 +4,14 @@ import io.github.oshogun.rabodepalha.RaboDePalha;
 import io.github.oshogun.rabodepalha.task.Task;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
 import io.github.oshogun.rabodepalha.task.TaskRunner;
+import io.github.oshogun.rabodepalha.worker.task.ScaffoldBlocks;
 import io.github.oshogun.rabodepalha.worker.task.TaskTypes;
 
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -33,6 +35,7 @@ import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,6 +52,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	public static final int MAX_COMMANDERS = 8;
 	private static final String TASKS_TAG = "Tasks";
 	private static final String COMMANDERS_TAG = "Commanders";
+	private static final String SCAFFOLD_TAG = "Scaffold";
+	private static final String SCAFFOLD_LEVEL_TAG = "ScaffoldLevel";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner<WorkerEntity> tasks = new TaskRunner<>((w, o) -> w.ironDoors().annotate(o));
@@ -56,6 +61,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	private final WorkerDoors doors = new WorkerDoors();
 	/** The iron door this worker is getting through and the ones it refused; not saved. */
 	private final WorkerIronDoors ironDoors = new WorkerIronDoors();
+	/** Throwaway blocks this worker placed and still has to remove; saved. */
+	private final WorkerScaffold scaffold = new WorkerScaffold();
 	/**
 	 * Players who gave this worker commands; told about terminal outcomes while online. Saved, capped at
 	 * {@link #MAX_COMMANDERS}, oldest first and most recent last.
@@ -164,7 +171,13 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	@Override
 	protected void customServerAiStep(ServerLevel level) {
 		super.customServerAiStep(level);
-		tasks.tick(this);
+		// Scaffold left by an ended task comes down before the next task starts: the runner only polls
+		// the next task on a later tick, so it waits until cleanup is done.
+		if (scaffold.needsCleanup()) {
+			scaffold.tickCleanup(level, this);
+		} else {
+			tasks.tick(this);
+		}
 		// After the task so doors open in the same tick the path reaches them. Tracking outlives the
 		// task: a finished or cancelled order still closes its doors once nothing stands in them.
 		doors.tick(level, this);
@@ -245,6 +258,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		if (!level().isClientSide() && reason.shouldDestroy()) {
 			// Lets the current task clean up (e.g. clear the crack overlay).
 			tasks.clear(this, TaskOutcome.Cancelled.Cause.REMOVED);
+			// Nobody is left to take the scaffold down, so it stays in the world.
+			scaffold.clearOnDeath();
 			if (level() instanceof ServerLevel serverLevel) {
 				doors.closeAllNow(serverLevel, this);
 			}
@@ -295,6 +310,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		tasks.snapshot().forEach(saved::add);
 		ValueOutput.TypedOutputList<UUID> savedCommanders = output.list(COMMANDERS_TAG, UUIDUtil.CODEC);
 		commanders.forEach(savedCommanders::add);
+		ValueOutput.TypedOutputList<WorkerScaffold.ScaffoldBlock> savedScaffold =
+				output.list(SCAFFOLD_TAG, WorkerScaffold.ScaffoldBlock.CODEC);
+		scaffold.placed().forEach(savedScaffold::add);
+		output.store(SCAFFOLD_LEVEL_TAG, Level.RESOURCE_KEY_CODEC, level().dimension());
 	}
 
 	@Override
@@ -306,6 +325,14 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		// Missing in saves from before commanders were persisted; that loads as no commanders.
 		commanders.clear();
 		input.listOrEmpty(COMMANDERS_TAG, UUIDUtil.CODEC).forEach(this::addCommander);
+		// Loaded unowned, so the worker takes it down before restarting its task. Only in the level it was
+		// placed in: after a dimension change the same coordinates belong to someone else.
+		List<WorkerScaffold.ScaffoldBlock> savedScaffold =
+				input.listOrEmpty(SCAFFOLD_TAG, WorkerScaffold.ScaffoldBlock.CODEC).stream().toList();
+		boolean sameLevel = input.read(SCAFFOLD_LEVEL_TAG, Level.RESOURCE_KEY_CODEC)
+				.filter(level().dimension()::equals).isPresent();
+		scaffold.load(sameLevel ? savedScaffold : List.of(),
+				block -> ScaffoldBlocks.isUsable(new ItemStack(block.asItem())));
 	}
 
 	@Override
@@ -325,6 +352,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	/** The iron doors this worker gets through with a nearby switch, and the ones it refused. */
 	public WorkerIronDoors ironDoors() {
 		return ironDoors;
+	}
+
+	/** The throwaway blocks this worker placed and still has to remove. */
+	public WorkerScaffold scaffold() {
+		return scaffold;
 	}
 
 	/**
@@ -373,6 +405,48 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Whether the inventory holds a block usable as scaffold ({@link ScaffoldBlocks#isUsable}),
+	 * never counting the last unit of {@code reserved} (pass {@link Items#AIR} for none).
+	 */
+	public boolean hasScaffoldBlock(Item reserved) {
+		return scaffoldSlot(reserved) >= 0;
+	}
+
+	/**
+	 * Removes one scaffold block from the inventory and returns its item, never taking the last unit
+	 * of {@code reserved} (pass {@link Items#AIR} for none). Empty if there is none to spare.
+	 */
+	public Optional<Item> takeScaffoldBlock(Item reserved) {
+		int slot = scaffoldSlot(reserved);
+		if (slot < 0) {
+			return Optional.empty();
+		}
+		ItemStack stack = inventory.getItem(slot);
+		Item item = stack.getItem();
+		stack.shrink(1);
+		inventory.setChanged();
+		return Optional.of(item);
+	}
+
+	/** The slot to take a scaffold block from, preferring items other than {@code reserved}; -1 if none. */
+	private int scaffoldSlot(Item reserved) {
+		int reservedSlot = -1;
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (!ScaffoldBlocks.isUsable(stack)) {
+				continue;
+			}
+			if (reserved == Items.AIR || !stack.is(reserved)) {
+				return i;
+			}
+			if (reservedSlot < 0) {
+				reservedSlot = i;
+			}
+		}
+		return reservedSlot >= 0 && inventory.countItem(reserved) > 1 ? reservedSlot : -1;
 	}
 
 	/**

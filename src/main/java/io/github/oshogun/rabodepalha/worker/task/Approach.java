@@ -1,6 +1,10 @@
 package io.github.oshogun.rabodepalha.worker.task;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import io.github.oshogun.rabodepalha.task.FailureReason;
 import io.github.oshogun.rabodepalha.task.TaskOutcome;
@@ -8,6 +12,8 @@ import io.github.oshogun.rabodepalha.worker.WorkerEntity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -15,6 +21,11 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Sub-state-machine that walks a worker until it is "in reach" of a target, shared by tasks.
  * Not persisted: tasks restart from scratch after load, so a fresh Approach is built in start().
+ *
+ * <p>With {@link #withScaffold}, an Approach that finds no reachable stand spot pillars up or bridges a gap
+ * with throwaway blocks ({@link ScaffoldPlanner}, {@link Scaffolding}). The placed blocks live in the
+ * worker's {@link io.github.oshogun.rabodepalha.worker.WorkerScaffold}, not here, so they are cleaned up
+ * once {@link #stop} releases them, even after a reload.
  */
 public final class Approach {
 	public static final int DEFAULT_TIMEOUT = 1200;
@@ -32,6 +43,9 @@ public final class Approach {
 	private final int timeoutTicks;
 	/** Cells the worker's body must not overlap when it arrives (or stand in, for picked spots). */
 	private final List<BlockPos> keepClear;
+	/** Whether to scaffold when no stand spot is reachable; {@link #reserved} is never spent on it. */
+	private final boolean scaffold;
+	private final Item reserved;
 
 	private List<BlockPos> candidates = List.of();
 	private int candidateIndex;
@@ -45,13 +59,34 @@ public final class Approach {
 	private boolean pathPending;
 	private State state = State.PATHING;
 	private TaskOutcome.Failed failure;
+	/** The scaffold being built, or null; while set, it drives the worker instead of the navigation. */
+	private Scaffolding scaffolding;
+	/** Only one scaffold attempt per start. */
+	private boolean scaffolded;
+	/** Whether this claimed the worker's scaffold record and must release it in {@link #stop}. */
+	private boolean claimedScaffold;
 
 	private Approach(BlockPos target, boolean standAt, boolean offTarget, List<BlockPos> keepClear, int timeoutTicks) {
+		this(target, standAt, offTarget, keepClear, timeoutTicks, false, Items.AIR);
+	}
+
+	private Approach(BlockPos target, boolean standAt, boolean offTarget, List<BlockPos> keepClear, int timeoutTicks,
+			boolean scaffold, Item reserved) {
 		this.target = target.immutable();
 		this.standAt = standAt;
 		this.offTarget = offTarget;
 		this.keepClear = List.copyOf(keepClear);
 		this.timeoutTicks = timeoutTicks;
+		this.scaffold = scaffold;
+		this.reserved = reserved;
+	}
+
+	/**
+	 * A copy that pillars or bridges with scaffold blocks when no stand spot is reachable, never spending
+	 * the last unit of {@code reserved} ({@code Items.AIR} for none). {@link #toStandAt} never scaffolds.
+	 */
+	public Approach withScaffold(Item reserved) {
+		return new Approach(target, standAt, offTarget, keepClear, timeoutTicks, !standAt, reserved);
 	}
 
 	/** Reach = eye within {@link StandSpots#REACH} of the target's center (for mining/placing). */
@@ -90,29 +125,29 @@ public final class Approach {
 		bestNodeIndex = 0;
 		failure = null;
 		pathPending = false;
+		scaffolding = null;
+		scaffolded = false;
+		releaseScaffold(worker);
 		state = State.PATHING;
 		if (inReach(worker)) {
 			state = State.ARRIVED;
 			return;
 		}
-		candidates = standAt
-				? List.of(target)
-				: StandSpots.candidates(worker.level(), target, worker.position(), worker.getEyeHeight()).stream()
-						.filter(spot -> !offTarget || !spot.below().equals(target))
-						// The worker is under two blocks tall: its body fills the spot and the cell above.
-						.filter(spot -> !keepClear.contains(spot) && !keepClear.contains(spot.above()))
-						.toList();
+		candidates = spotCandidates(worker);
 		if (!canPath(worker)) {
 			// Freshly spawned/loaded or falling: navigation refuses to path until on ground.
 			pathPending = true;
 		} else if (!followNextReachablePath(worker)) {
-			failNoPath(worker);
+			scaffoldOrFail(worker);
 		}
 	}
 
 	public State tick(WorkerEntity worker) {
 		if (state != State.PATHING) {
 			return state;
+		}
+		if (scaffolding != null) {
+			return tickScaffolding(worker);
 		}
 		elapsed++;
 		if (inReach(worker)) {
@@ -128,7 +163,7 @@ public final class Approach {
 				pathPending = false;
 				lastImprovement = elapsed;
 				if (!followNextReachablePath(worker)) {
-					return failNoPath(worker);
+					return scaffoldOrFail(worker);
 				}
 			}
 			return state;
@@ -173,6 +208,7 @@ public final class Approach {
 
 	public void stop(WorkerEntity worker) {
 		worker.getNavigation().stop();
+		releaseScaffold(worker);
 	}
 
 	public State state() {
@@ -196,6 +232,16 @@ public final class Approach {
 		return standAt
 				? worker.position().distanceTo(Vec3.atBottomCenterOf(target)) <= MOVE_REACH
 				: worker.getEyePosition().distanceTo(Vec3.atCenterOf(target)) <= StandSpots.REACH;
+	}
+
+	private List<BlockPos> spotCandidates(WorkerEntity worker) {
+		return standAt
+				? List.of(target)
+				: StandSpots.candidates(worker.level(), target, worker.position(), worker.getEyeHeight()).stream()
+						.filter(spot -> !offTarget || !spot.below().equals(target))
+						// The worker is under two blocks tall: its body fills the spot and the cell above.
+						.filter(spot -> !keepClear.contains(spot) && !keepClear.contains(spot.above()))
+						.toList();
 	}
 
 	private double distance(WorkerEntity worker) {
@@ -241,6 +287,105 @@ public final class Approach {
 			candidateIndex++;
 		}
 		return false;
+	}
+
+	/**
+	 * Builds the scaffold while it runs. Elapsed, stuck, repath and iron door handling are paused: the worker
+	 * is mostly mid-air or standing still, which they would take for being stuck.
+	 */
+	private State tickScaffolding(WorkerEntity worker) {
+		if (inReach(worker)) {
+			// Also stops a pillar early once a jump brings the eye in reach.
+			worker.getNavigation().stop();
+			state = State.ARRIVED;
+			return state;
+		}
+		Scaffolding.State result = scaffolding.tick(worker);
+		if (scaffolding.claimed()) {
+			claimedScaffold = true;
+		}
+		switch (result) {
+			case FAILED -> {
+				state = State.FAILED;
+				failure = scaffolding.failure();
+			}
+			case DONE -> {
+				scaffolding = null;
+				if (inReach(worker)) {
+					state = State.ARRIVED;
+					return state;
+				}
+				// A bridge that reached resumed ground: walk on from there.
+				candidates = spotCandidates(worker);
+				candidateIndex = 0;
+				bestDistance = distance(worker);
+				lastImprovement = elapsed;
+				trackedPath = null;
+				if (!canPath(worker)) {
+					pathPending = true;
+				} else if (!followNextReachablePath(worker)) {
+					return failNoPath(worker);
+				}
+			}
+			case RUNNING -> {
+			}
+		}
+		return state;
+	}
+
+	/**
+	 * With scaffolding on, starts the cheapest scaffold plan whose start the worker can get to; otherwise,
+	 * or with no plan, fails as unreachable. Plans without scaffold blocks fail with a hint instead.
+	 */
+	private State scaffoldOrFail(WorkerEntity worker) {
+		if (!scaffold || scaffolded) {
+			return failNoPath(worker);
+		}
+		scaffolded = true;
+		List<ScaffoldPlanner.Plan> plans = scaffoldPlans(worker);
+		if (plans.isEmpty()) {
+			return failNoPath(worker);
+		}
+		if (!worker.hasScaffoldBlock(reserved)) {
+			return fail(FailureReason.UNREACHABLE,
+					"no path to " + target.toShortString() + "; scaffold blocks (#rabodepalha:scaffold_blocks) would help");
+		}
+		PathNavigation navigation = worker.getNavigation();
+		for (ScaffoldPlanner.Plan plan : plans) {
+			BlockPos start = plan.start();
+			if (worker.blockPosition().equals(start) && worker.onGround()) {
+				scaffolding = new Scaffolding(plan, reserved);
+				return state;
+			}
+			Path path = navigation.createPath(start, 0);
+			if (path != null && path.canReach()) {
+				scaffolding = new Scaffolding(plan, reserved);
+				return state;
+			}
+		}
+		return failNoPath(worker);
+	}
+
+	/** Pillars, then bridges, fewest blocks first; a pillar wins a tie. */
+	private List<ScaffoldPlanner.Plan> scaffoldPlans(WorkerEntity worker) {
+		Set<BlockPos> forbidden = new HashSet<>(keepClear);
+		forbidden.add(target);
+		if (offTarget) {
+			forbidden.add(target.above());
+		}
+		ScaffoldPlanner.Cells cells = ScaffoldPlanner.Cells.of(worker.level());
+		List<ScaffoldPlanner.Plan> plans = new ArrayList<>();
+		plans.addAll(ScaffoldPlanner.pillars(cells, target, worker.position(), worker.getEyeHeight(), forbidden::contains));
+		plans.addAll(ScaffoldPlanner.bridges(cells, target, worker.position(), worker.getEyeHeight(), forbidden::contains));
+		plans.sort(Comparator.comparingInt(plan -> plan.cells().size()));
+		return plans;
+	}
+
+	private void releaseScaffold(WorkerEntity worker) {
+		if (claimedScaffold) {
+			worker.scaffold().release();
+			claimedScaffold = false;
+		}
 	}
 
 	/** Fails as unreachable, naming the refused iron door when that is likely what blocks the way. */

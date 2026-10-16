@@ -123,6 +123,18 @@ down (sneaking on scaffolding) without fall damage. A closed trapdoor on top of 
 is opened as the worker arrives and closed again behind it. A column with a gap, or one that
 stops short of the floor, is not a route. Climbs cost slightly more than flat walking.
 
+When mine, place and build find no reachable stand spot (a ceiling or tall build more than about
+5 blocks up, or a block across a gap), the worker scaffolds with throwaway blocks from its
+inventory: it pillars up (up to 16 blocks) or bridges a gap (up to 8 blocks). Only blocks in the
+item tag `#rabodepalha:scaffold_blocks` are used (dirt, cobblestone, cobbled deepslate,
+netherrack, andesite, diorite, granite, tuff, blackstone by default; a data pack can change it),
+and never the last unit of a block being placed. With none, the task fails as unreachable and the
+reason says scaffold blocks would help. It never places into or over lava, in a one-block-wide
+shaft, next to a door, or on a path another worker is using. When the task ends (success, failure
+or cancel), the worker removes what it placed in reverse order and takes the blocks back, coming
+down a pillar one block at a time without fall damage. The placed positions are saved, so cleanup
+still happens after a reload; blocks it didn't place are never removed.
+
 A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
 7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The
 ticket persists across restarts and goes away when the worker has no finite work left, dies or is

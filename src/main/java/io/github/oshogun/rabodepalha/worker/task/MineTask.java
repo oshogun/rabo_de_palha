@@ -13,6 +13,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -81,9 +82,10 @@ public final class MineTask implements Task<WorkerEntity> {
 		miningTicks = 0;
 		startFailure = checkMineable(worker, level);
 		if (startFailure == null) {
-			approach = fromBeside
+			approach = (fromBeside
 					? Approach.toWorkOnFromBeside(pos, Approach.DEFAULT_TIMEOUT)
-					: Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT);
+					: Approach.toWorkOn(pos, Approach.DEFAULT_TIMEOUT))
+					.withScaffold(Items.AIR);
 			approach.start(worker);
 		}
 	}

@@ -79,7 +79,7 @@ public class WorkerClimbGameTest {
 	}
 
 	/** Fails the test the moment the worker loses health. */
-	private static void watchHealth(GameTestHelper helper, WorkerEntity worker) {
+	static void watchHealth(GameTestHelper helper, WorkerEntity worker) {
 		helper.onEachTick(() -> helper.assertTrue(worker.getHealth() >= worker.getMaxHealth(),
 				"worker took damage: " + worker.getHealth() + "/" + worker.getMaxHealth() + " from "
 						+ (worker.getLastDamageSource() == null ? "?" : worker.getLastDamageSource().getMsgId())

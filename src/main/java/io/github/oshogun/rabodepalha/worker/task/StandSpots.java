@@ -15,7 +15,7 @@ public final class StandSpots {
 	public static final int MAX_CANDIDATES = 8;
 
 	/** Navigation stops up to ~0.45 blocks per axis off a node's center, so spots keep this margin. */
-	private static final double ARRIVAL_SLACK = 0.75;
+	static final double ARRIVAL_SLACK = 0.75;
 	private static final int HORIZONTAL_RADIUS = 4;
 	private static final int MIN_DY = -5;
 	private static final int MAX_DY = 3;

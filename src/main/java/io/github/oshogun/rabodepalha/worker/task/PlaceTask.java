@@ -79,8 +79,10 @@ public final class PlaceTask implements Task<WorkerEntity> {
 			startFailure = missingItem();
 			return;
 		}
-		// Stay out of the cells being filled, so the worker never obstructs its own placement.
-		approach = Approach.toWorkOnClearOf(pos, parts().stream().map(Part::pos).toList(), Approach.DEFAULT_TIMEOUT);
+		// Stay out of the cells being filled, so the worker never obstructs its own placement. Scaffolding
+		// reserves the item being placed, so it never spends the last one as a throwaway block.
+		approach = Approach.toWorkOnClearOf(pos, parts().stream().map(Part::pos).toList(), Approach.DEFAULT_TIMEOUT)
+				.withScaffold(item);
 		approach.start(worker);
 	}
 
