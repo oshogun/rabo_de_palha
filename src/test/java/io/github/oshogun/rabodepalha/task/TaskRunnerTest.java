@@ -456,6 +456,40 @@ class TaskRunnerTest {
 		assertEquals(List.of(a, farm), restored.snapshot());
 	}
 
+	@Test
+	void annotatorRewritesOutcomesBeforeListeners() {
+		List<Object> contexts = new ArrayList<>();
+		TaskRunner<Object> annotated = new TaskRunner<>((ctx, outcome) -> {
+			contexts.add(ctx);
+			return outcome instanceof TaskOutcome.Succeeded s ? TaskOutcome.succeeded(s.note() + "; noted") : outcome;
+		});
+		annotated.addListener((task, outcome) -> outcomes.add(outcome));
+		annotated.enqueue(new FakeTask("a", 1));
+		annotated.enqueue(new FakeTask("b", 100));
+
+		annotated.tick(CTX);
+		annotated.tick(CTX);
+		annotated.cancelCurrent(CTX, Cause.REMOVED);
+
+		assertEquals(List.of(TaskOutcome.succeeded("a; noted"), new TaskOutcome.Cancelled(Cause.REMOVED)), outcomes);
+		assertEquals(List.of(CTX, CTX), contexts);
+	}
+
+	@Test
+	void throwingOrNullAnnotatorKeepsOriginalOutcome() {
+		TaskRunner<Object> throwing = new TaskRunner<>((ctx, outcome) -> {
+			throw new IllegalStateException("boom");
+		});
+		TaskRunner<Object> nulling = new TaskRunner<>((ctx, outcome) -> null);
+		for (TaskRunner<Object> r : List.of(throwing, nulling)) {
+			r.addListener((task, outcome) -> outcomes.add(outcome));
+			r.enqueue(new FakeTask("a", 1));
+			r.tick(CTX);
+		}
+
+		assertEquals(List.of(TaskOutcome.succeeded("a"), TaskOutcome.succeeded("a")), outcomes);
+	}
+
 	private FakeTask repeating(String name) {
 		FakeTask task = new FakeTask(name, TaskOutcome.RUNNING);
 		task.repeating = true;

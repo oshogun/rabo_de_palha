@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiFunction;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,10 +27,25 @@ public class TaskRunner<C> {
 
 	private final ArrayDeque<Pending<C>> queue = new ArrayDeque<>();
 	private final List<TaskListener<C>> listeners = new CopyOnWriteArrayList<>();
+	/** Rewrites each terminal outcome (e.g. to append notes) before listeners see it. */
+	private final BiFunction<C, TaskOutcome, TaskOutcome> annotator;
 	private Task<C> current;
 	private boolean started;
 	/** Runtime-only ids for queued tasks; not saved, so ids change after a reload. */
 	private long nextId;
+
+	public TaskRunner() {
+		this((ctx, outcome) -> outcome);
+	}
+
+	/**
+	 * {@code annotator} is applied to every outcome of a task that ran (finished, failed or was
+	 * cancelled after starting) before listeners are notified. If it throws or returns null, the
+	 * original outcome is reported.
+	 */
+	public TaskRunner(BiFunction<C, TaskOutcome, TaskOutcome> annotator) {
+		this.annotator = Objects.requireNonNull(annotator, "annotator");
+	}
 
 	/** A queued task with its runtime id, used to remove one specific task. */
 	public record Pending<C>(long id, Task<C> task) {
@@ -190,6 +206,14 @@ public class TaskRunner<C> {
 		} catch (RuntimeException e) {
 			LOGGER.warn("Task {} threw while stopping", task.describe(), e);
 			outcome = TaskOutcome.failed(FailureReason.ERROR, e.toString());
+		}
+		try {
+			TaskOutcome annotated = annotator.apply(ctx, outcome);
+			if (annotated != null) {
+				outcome = annotated;
+			}
+		} catch (RuntimeException e) {
+			LOGGER.warn("Annotating the outcome of task {} failed", task.describe(), e);
 		}
 		notifyListeners(task, outcome);
 	}

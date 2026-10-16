@@ -104,8 +104,17 @@ gates. The worker opens them as it arrives, with sound and an arm swing, and clo
 opened once it is through. It leaves open anything it found open, and keeps a door open while
 another worker within 2 blocks is about to use it. Doors it opened are closed once it steps
 clear, even if its task was cancelled, and when it dies or is removed; a worker that unloads or
-changes dimension leaves the doors it opened open. Iron doors stay impassable, and this does not
-depend on `mobGriefing`.
+changes dimension leaves the doors it opened open. This does not depend on `mobGriefing`.
+
+Iron doors are passable only when a switch looks like it opens them: a button or lever on the
+door, beside its frame or within 1-2 blocks on the approach side, or a pressure plate in front.
+The worker presses the button or flips the lever, waits about a second, and walks through
+(re-pressing up to 3 times). A flipped lever is flipped back from the far side if a lever there
+controls the same door; otherwise the door is left open and the task report says so. Switched
+doors cost more than an open route, so workers prefer detours. A switch that doesn't open the
+door is remembered as a dead end for about a minute and the worker repaths; with no other route
+the task fails with "no way through the iron door at x y z". Iron doors with no nearby switch
+stay impassable.
 
 A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
 7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The

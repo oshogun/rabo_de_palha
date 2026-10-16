@@ -101,7 +101,7 @@ public final class Approach {
 			// Freshly spawned/loaded or falling: navigation refuses to path until on ground.
 			pathPending = true;
 		} else if (!followNextReachablePath(worker)) {
-			fail(FailureReason.UNREACHABLE, "no path to " + target.toShortString());
+			failNoPath(worker);
 		}
 	}
 
@@ -123,8 +123,18 @@ public final class Approach {
 				pathPending = false;
 				lastImprovement = elapsed;
 				if (!followNextReachablePath(worker)) {
-					return fail(FailureReason.UNREACHABLE, "no path to " + target.toShortString());
+					return failNoPath(worker);
 				}
+			}
+			return state;
+		}
+		if (worker.ironDoors().takeRefusal()) {
+			// The switch did not open the door: it is now remembered as impassable, so repath around it.
+			// Not counted as a repath; each refusal adds a door to the memory, which bounds this.
+			bestDistance = distance(worker);
+			lastImprovement = elapsed;
+			if (!followNextReachablePath(worker)) {
+				return fail(FailureReason.UNREACHABLE, ironDoorDetail(worker.ironDoors().lastRefused()));
 			}
 			return state;
 		}
@@ -146,7 +156,7 @@ public final class Approach {
 				candidateIndex++;
 			}
 			if (!followNextReachablePath(worker)) {
-				return fail(FailureReason.UNREACHABLE, "no path to " + target.toShortString());
+				return failNoPath(worker);
 			}
 		}
 		return state;
@@ -202,6 +212,19 @@ public final class Approach {
 			candidateIndex++;
 		}
 		return false;
+	}
+
+	/** Fails as unreachable, naming the refused iron door when that is likely what blocks the way. */
+	private State failNoPath(WorkerEntity worker) {
+		BlockPos door = worker.ironDoors().lastRefused();
+		if (door != null && worker.ironDoors().isRefused(door, worker.level().getGameTime())) {
+			return fail(FailureReason.UNREACHABLE, ironDoorDetail(door));
+		}
+		return fail(FailureReason.UNREACHABLE, "no path to " + target.toShortString());
+	}
+
+	private static String ironDoorDetail(BlockPos door) {
+		return "no way through the iron door at " + door.toShortString();
 	}
 
 	private State fail(FailureReason reason, String detail) {

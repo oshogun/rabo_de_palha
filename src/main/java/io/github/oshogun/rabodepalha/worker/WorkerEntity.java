@@ -51,9 +51,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	private static final String COMMANDERS_TAG = "Commanders";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
-	private final TaskRunner<WorkerEntity> tasks = new TaskRunner<>();
+	private final TaskRunner<WorkerEntity> tasks = new TaskRunner<>((w, o) -> w.ironDoors().annotate(o));
 	/** Doors and gates this worker opened and still has to close; not saved. */
 	private final WorkerDoors doors = new WorkerDoors();
+	/** The iron door this worker is getting through and the ones it refused; not saved. */
+	private final WorkerIronDoors ironDoors = new WorkerIronDoors();
 	/**
 	 * Players who gave this worker commands; told about terminal outcomes while online. Saved, capped at
 	 * {@link #MAX_COMMANDERS}, oldest first and most recent last.
@@ -166,6 +168,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		// After the task so doors open in the same tick the path reaches them. Tracking outlives the
 		// task: a finished or cancelled order still closes its doors once nothing stands in them.
 		doors.tick(level, this);
+		ironDoors.tick(level, this);
 	}
 
 	@Override
@@ -260,6 +263,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 		if (!reason.shouldDestroy()) {
 			// Unloaded or changed dimension: leave the doors open rather than write to unloading chunks.
 			doors.forget();
+			ironDoors.forget();
 		}
 		if (level() instanceof ServerLevel serverLevel) {
 			if (reason.shouldDestroy() || reason == RemovalReason.CHANGED_DIMENSION) {
@@ -316,6 +320,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 	/** Read-only view of the canonical positions of the doors and gates this worker opened and will close. */
 	public Set<BlockPos> openedDoors() {
 		return doors.opened();
+	}
+
+	/** The iron doors this worker gets through with a nearby switch, and the ones it refused. */
+	public WorkerIronDoors ironDoors() {
+		return ironDoors;
 	}
 
 	/**

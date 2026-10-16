@@ -6,8 +6,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.pathfinder.PathFinder;
 
 /**
- * Ground navigation whose paths go through closed wooden doors and fence gates. Iron doors stay
- * blocked.
+ * Ground navigation whose paths go through closed wooden doors and fence gates, and through closed
+ * iron doors that a nearby switch looks like it opens (see {@link WorkerNodeEvaluator}). Other iron
+ * doors stay blocked.
  */
 public class WorkerNavigation extends GroundPathNavigation {
 	public WorkerNavigation(Mob mob, Level level) {

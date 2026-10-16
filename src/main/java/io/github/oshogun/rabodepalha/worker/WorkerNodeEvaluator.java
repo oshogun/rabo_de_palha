@@ -1,8 +1,16 @@
 package io.github.oshogun.rabodepalha.worker;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.PathNavigationRegion;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.PathType;
 import net.minecraft.world.level.pathfinder.PathfindingContext;
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
@@ -13,14 +21,86 @@ import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
  *
  * <p>Only the gate's own cell changes; the cell above keeps its vanilla type, so a closed gate still
  * can't be stepped onto.
+ *
+ * <p>A closed iron door gets the same treatment when {@link IronDoorSwitches} finds a switch near it
+ * and the worker hasn't refused that door ({@link WorkerIronDoors} uses the switch on the way). The
+ * path type has no direction, so {@link #getNeighbors} drops steps into the door from a side without
+ * a switch, and charges {@link IronDoorSwitches#IRON_DOOR_MALUS} for the others so an open route of
+ * similar length wins. Mobs other than workers keep the vanilla behaviour.
  */
 public class WorkerNodeEvaluator extends WalkNodeEvaluator {
+	/** Whether a door, by canonical position, has a switch on either side; cleared per search. */
+	private final Map<BlockPos, Boolean> switchedCache = new HashMap<>();
+
+	@Override
+	public void prepare(PathNavigationRegion level, Mob entity) {
+		switchedCache.clear();
+		super.prepare(level, entity);
+	}
+
+	@Override
+	public void done() {
+		switchedCache.clear();
+		super.done();
+	}
+
 	@Override
 	public PathType getPathType(PathfindingContext context, int x, int y, int z) {
-		BlockState state = context.getBlockState(new BlockPos(x, y, z));
+		BlockPos pos = new BlockPos(x, y, z);
+		BlockState state = context.getBlockState(pos);
 		if (state.getBlock() instanceof FenceGateBlock && !state.getValue(FenceGateBlock.OPEN)) {
 			return PathType.DOOR_WOOD_CLOSED;
 		}
+		if (isClosedIronDoor(state) && isSwitchedDoor(context, state, pos)) {
+			return PathType.DOOR_WOOD_CLOSED;
+		}
 		return super.getPathType(context, x, y, z);
+	}
+
+	@Override
+	public int getNeighbors(Node[] neighbors, Node node) {
+		int count = super.getNeighbors(neighbors, node);
+		if (!(this.mob instanceof WorkerEntity) || this.currentContext == null) {
+			return count;
+		}
+		int kept = 0;
+		for (int i = 0; i < count; i++) {
+			Node neighbor = neighbors[i];
+			BlockPos pos = new BlockPos(neighbor.x, neighbor.y, neighbor.z);
+			BlockState state = this.currentContext.getBlockState(pos);
+			if (isClosedIronDoor(state)) {
+				BlockPos door = Openables.canonicalPos(state, pos);
+				Direction.Axis axis = IronDoorSwitches.passageAxis(state);
+				int side = IronDoorSwitches.sideOf(door, axis, node.x + 0.5, node.z + 0.5);
+				if (side == 0 || IronDoorSwitches.switchesOnSide(door, axis, side, this.currentContext::getBlockState).isEmpty()) {
+					continue;
+				}
+				// Nodes are cached per search, so max keeps this idempotent.
+				neighbor.costMalus = Math.max(neighbor.costMalus, IronDoorSwitches.IRON_DOOR_MALUS);
+			}
+			neighbors[kept++] = neighbor;
+		}
+		for (int i = kept; i < count; i++) {
+			neighbors[i] = null;
+		}
+		return kept;
+	}
+
+	private static boolean isClosedIronDoor(BlockState state) {
+		return IronDoorSwitches.isIronDoor(state) && !state.getValue(DoorBlock.OPEN);
+	}
+
+	/** Whether the worker searching may plan through this closed iron door. */
+	private boolean isSwitchedDoor(PathfindingContext context, BlockState state, BlockPos pos) {
+		if (!(this.mob instanceof WorkerEntity worker) || worker.level().isClientSide()) {
+			return false;
+		}
+		BlockPos door = Openables.canonicalPos(state, pos);
+		if (worker.ironDoors().isRefused(door, worker.level().getGameTime())) {
+			return false;
+		}
+		Direction.Axis axis = IronDoorSwitches.passageAxis(state);
+		return switchedCache.computeIfAbsent(door,
+				d -> IronDoorSwitches.hasAnySwitch(d, axis, context::getBlockState));
 	}
 }

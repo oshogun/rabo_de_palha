@@ -31,10 +31,10 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class WorkerDoorGameTest {
-	private static final BlockPos WORKER_START = new BlockPos(1, 1, 1);
+	static final BlockPos WORKER_START = new BlockPos(1, 1, 1);
 	/** The single opening in the room's west wall, where the door or gate goes. */
-	private static final BlockPos DOORWAY = new BlockPos(4, 1, 1);
-	private static final BlockPos INSIDE = new BlockPos(6, 1, 5);
+	static final BlockPos DOORWAY = new BlockPos(4, 1, 1);
+	static final BlockPos INSIDE = new BlockPos(6, 1, 5);
 
 	/**
 	 * A stone room on x 4..7, z 0..7: walls three blocks high, a stone roof, and one opening at
@@ -42,7 +42,7 @@ public class WorkerDoorGameTest {
 	 * along z 0..1 leads to the door; the rest is solid, so nothing in the room's far end is within
 	 * mining reach from outside.
 	 */
-	private static void buildRoom(GameTestHelper helper) {
+	static void buildRoom(GameTestHelper helper) {
 		WorkerTaskGameTest.layFloor(helper);
 		for (int x = 0; x <= 3; x++) {
 			for (int z = 2; z <= 7; z++) {
@@ -67,7 +67,7 @@ public class WorkerDoorGameTest {
 	}
 
 	/** Puts {@code door} (both halves) in the doorway, facing along the passage. */
-	private static void placeDoor(GameTestHelper helper, Block door, boolean open) {
+	static void placeDoor(GameTestHelper helper, Block door, boolean open) {
 		BlockState lower = door.defaultBlockState()
 				.setValue(DoorBlock.FACING, Direction.EAST)
 				.setValue(DoorBlock.OPEN, open);
@@ -82,13 +82,13 @@ public class WorkerDoorGameTest {
 				.setValue(FenceGateBlock.OPEN, false));
 	}
 
-	private static WorkerEntity spawnWorker(GameTestHelper helper, BlockPos at, List<TaskOutcome> outcomes) {
+	static WorkerEntity spawnWorker(GameTestHelper helper, BlockPos at, List<TaskOutcome> outcomes) {
 		WorkerEntity worker = helper.spawn(ModEntities.WORKER, at);
 		worker.tasks().addListener((task, outcome) -> outcomes.add(outcome));
 		return worker;
 	}
 
-	private static boolean isOpen(GameTestHelper helper) {
+	static boolean isOpen(GameTestHelper helper) {
 		return helper.getBlockState(DOORWAY).getValue(BlockStateProperties.OPEN);
 	}
 
@@ -99,7 +99,7 @@ public class WorkerDoorGameTest {
 		return seen;
 	}
 
-	private static void assertSucceeded(GameTestHelper helper, List<TaskOutcome> outcomes, String what) {
+	static void assertSucceeded(GameTestHelper helper, List<TaskOutcome> outcomes, String what) {
 		helper.assertTrue(outcomes.size() == 1, what + " not finished yet");
 		helper.assertTrue(outcomes.get(0) instanceof TaskOutcome.Succeeded, what + " did not succeed: " + outcomes.get(0));
 	}
