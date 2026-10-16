@@ -94,6 +94,24 @@ class WorkerDoorsTest {
 		assertFalse(WorkerDoors.withinOpenRange(centre.add(0, 2, 0), DOOR));
 	}
 
+	@Test
+	void climbTrapdoorOpensFromUpToTwoBlocksBelow() {
+		Vec3 centre = Vec3.atBottomCenterOf(DOOR);
+		assertTrue(WorkerDoors.withinClimbOpenRange(centre, DOOR));
+		assertTrue(WorkerDoors.withinClimbOpenRange(centre.add(0, -1, 0), DOOR));
+		assertTrue(WorkerDoors.withinClimbOpenRange(centre.add(0, -2, 0), DOOR));
+		assertTrue(WorkerDoors.withinClimbOpenRange(centre.add(0, 1, 0), DOOR));
+		assertTrue(WorkerDoors.withinClimbOpenRange(centre.add(1.9, -2, 0), DOOR));
+	}
+
+	@Test
+	void climbTrapdoorStaysShutWhenTooFar() {
+		Vec3 centre = Vec3.atBottomCenterOf(DOOR);
+		assertFalse(WorkerDoors.withinClimbOpenRange(centre.add(0, -3, 0), DOOR));
+		assertFalse(WorkerDoors.withinClimbOpenRange(centre.add(0, 2, 0), DOOR));
+		assertFalse(WorkerDoors.withinClimbOpenRange(centre.add(2.5, -1, 0), DOOR));
+	}
+
 	/** A straight path along x from {@code fromX} to {@code toX} at the door's y and z. */
 	private static Path line(int fromX, int toX) {
 		List<Node> nodes = new ArrayList<>();

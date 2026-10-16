@@ -2,6 +2,7 @@ package io.github.oshogun.rabodepalha.worker;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -26,7 +27,14 @@ import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
  * and the worker hasn't refused that door ({@link WorkerIronDoors} uses the switch on the way). The
  * path type has no direction, so {@link #getNeighbors} drops steps into the door from a side without
  * a switch, and charges {@link IronDoorSwitches#IRON_DOOR_MALUS} for the others so an open route of
- * similar length wins. Mobs other than workers keep the vanilla behaviour.
+ * similar length wins.
+ *
+ * <p>Workers also climb: {@link #getNeighbors} adds one node per climbed block, up and down a column
+ * of climbable blocks, from a floor down into the top of a shaft beside it and back off the top onto that
+ * floor, following the rules in
+ * {@link ClimbLinks}. Each climb node costs {@link ClimbLinks#CLIMB_MALUS}. {@link #getStart} starts a
+ * worker that is on a ladder where it is, not at the bottom of the shaft. Mobs other than workers keep
+ * the vanilla behaviour.
  */
 public class WorkerNodeEvaluator extends WalkNodeEvaluator {
 	/** Whether a door, by canonical position, has a switch on either side; cleared per search. */
@@ -83,7 +91,64 @@ public class WorkerNodeEvaluator extends WalkNodeEvaluator {
 		for (int i = kept; i < count; i++) {
 			neighbors[i] = null;
 		}
-		return kept;
+		return addClimbLinks(neighbors, kept, node);
+	}
+
+	@Override
+	public Node getStart() {
+		if (this.mob instanceof WorkerEntity && this.mob.onClimbable()) {
+			// Vanilla scans down past the pathfindable ladder and would start at the bottom of the shaft.
+			Node start = this.getNode(this.mob.blockPosition());
+			start.type = PathType.WALKABLE;
+			start.costMalus = 0.0f;
+			return start;
+		}
+		return super.getStart();
+	}
+
+	/**
+	 * Appends the climb links of {@link ClimbLinks} from {@code node}: up, down, down into a shaft beside it, and
+	 * off the top of a column onto the floor beside it.
+	 */
+	private int addClimbLinks(Node[] neighbors, int count, Node node) {
+		Function<BlockPos, BlockState> get = this.currentContext::getBlockState;
+		BlockPos feet = new BlockPos(node.x, node.y, node.z);
+		if (ClimbLinks.canClimbUp(get, feet, ClimbLinks.MAX_CLIMB)) {
+			count = addClimbLink(neighbors, count, feet.above());
+		}
+		if (ClimbLinks.canClimbDown(get, feet)) {
+			count = addClimbLink(neighbors, count, feet.below());
+		}
+		for (Direction direction : Direction.Plane.HORIZONTAL) {
+			BlockPos side = feet.relative(direction);
+			if (ClimbLinks.climbEntryBelow(get, side)) {
+				count = addClimbLink(neighbors, count, side.below());
+			}
+			if (ClimbLinks.climbExitAbove(get, feet, side)) {
+				count = addClimbLink(neighbors, count, side.above());
+			}
+		}
+		return count;
+	}
+
+	private int addClimbLink(Node[] neighbors, int count, BlockPos pos) {
+		if (count >= neighbors.length) {
+			return count;
+		}
+		Node link = this.getNode(pos.getX(), pos.getY(), pos.getZ());
+		if (link.closed) {
+			return count;
+		}
+		for (int i = 0; i < count; i++) {
+			if (neighbors[i] == link) {
+				return count;
+			}
+		}
+		link.type = PathType.WALKABLE;
+		// Nodes are cached per search, so max keeps this idempotent; it also lifts a vanilla -1.
+		link.costMalus = Math.max(link.costMalus, ClimbLinks.CLIMB_MALUS);
+		neighbors[count++] = link;
+		return count;
 	}
 
 	private static boolean isClosedIronDoor(BlockState state) {

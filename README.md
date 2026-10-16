@@ -116,6 +116,13 @@ door is remembered as a dead end for about a minute and the worker repaths; with
 the task fails with "no way through the iron door at x y z". Iron doors with no nearby switch
 stay impassable.
 
+Every walking task also climbs ladders, vines (including twisting and weeping) and scaffolding,
+up and down, for columns up to 16 blocks tall, so upper floors are reachable for mining, placing
+and building too. The worker steps off at the top onto the floor beside the column, and slides
+down (sneaking on scaffolding) without fall damage. A closed trapdoor on top of a ladder shaft
+is opened as the worker arrives and closed again behind it. A column with a gap, or one that
+stops short of the floor, is not a route. Climbs cost slightly more than flat walking.
+
 A worker with a current or queued task keeps its chunks loaded (`rabodepalha:worker` ticket, a
 7x7 chunk area around it that follows it), so it keeps working when no player is nearby. The
 ticket persists across restarts and goes away when the worker has no finite work left, dies or is

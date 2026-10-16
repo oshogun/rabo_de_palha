@@ -39,6 +39,9 @@ public final class Approach {
 	private int elapsed;
 	private double bestDistance;
 	private int lastImprovement;
+	/** The path whose progress {@link #bestNodeIndex} measures; a new path restarts the count. */
+	private Path trackedPath;
+	private int bestNodeIndex;
 	private boolean pathPending;
 	private State state = State.PATHING;
 	private TaskOutcome.Failed failure;
@@ -83,6 +86,8 @@ public final class Approach {
 		candidateIndex = 0;
 		lastImprovement = 0;
 		bestDistance = distance(worker);
+		trackedPath = null;
+		bestNodeIndex = 0;
 		failure = null;
 		pathPending = false;
 		state = State.PATHING;
@@ -142,6 +147,10 @@ public final class Approach {
 		if (distance < bestDistance - MIN_IMPROVEMENT) {
 			bestDistance = distance;
 			lastImprovement = elapsed;
+		} else if (advancedAlongPath(worker)) {
+			// A detour to a ladder, or a climb straight up under the target, moves along the path
+			// without getting closer; that is still progress.
+			lastImprovement = elapsed;
 		} else if (elapsed - lastImprovement > STUCK_TICKS) {
 			return fail(FailureReason.STUCK, "no progress for " + STUCK_TICKS + " ticks");
 		}
@@ -195,9 +204,29 @@ public final class Approach {
 				: worker.getEyePosition().distanceTo(Vec3.atCenterOf(target));
 	}
 
-	/** Mirrors GroundPathNavigation#canUpdatePath; createPath returns null otherwise. */
+	/** Mirrors WorkerNavigation#canUpdatePath; createPath returns null otherwise. */
 	private static boolean canPath(WorkerEntity worker) {
-		return worker.onGround() || worker.isInLiquid() || worker.isPassenger();
+		return worker.onGround() || worker.isInLiquid() || worker.isPassenger() || worker.onClimbable();
+	}
+
+	/** True when the worker reached a further node of the path it follows since the last call. */
+	private boolean advancedAlongPath(WorkerEntity worker) {
+		Path path = worker.getNavigation().getPath();
+		if (path == null) {
+			trackedPath = null;
+			return false;
+		}
+		int index = path.getNextNodeIndex();
+		if (path != trackedPath) {
+			trackedPath = path;
+			bestNodeIndex = index;
+			return false;
+		}
+		if (index > bestNodeIndex) {
+			bestNodeIndex = index;
+			return true;
+		}
+		return false;
 	}
 
 	/** Follows a complete path to the current candidate or, failing that, to the next ones. */

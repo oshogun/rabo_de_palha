@@ -11,6 +11,7 @@
 			"io.github.oshogun.rabodepalha.gametest.WorkerTaskGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerDoorGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerIronDoorGameTest",
+			"io.github.oshogun.rabodepalha.gametest.WorkerClimbGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerFarmGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerTendGameTest",
 			"io.github.oshogun.rabodepalha.gametest.WorkerIrrigateGameTest",

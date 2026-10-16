@@ -9,7 +9,10 @@ import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EntitySelector;
+import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.Path;
@@ -25,6 +28,10 @@ import net.minecraft.world.phys.Vec3;
  * in it, or while another worker within {@link #OTHER_WORKER_RANGE} blocks is coming through.
  * Tracking outlives the task, so a cancelled order still closes its doors once nothing blocks them.
  * Not persisted: workers that unload leave their doors open.
+ *
+ * <p>A wooden trapdoor at the top of a ladder shaft ({@link ClimbLinks#isClosedClimbTrapdoor}) is handled
+ * the same way: opened when the climber comes within {@link #withinClimbOpenRange}, tracked under its own
+ * position, and closed once the worker is through. Other trapdoors are never touched.
  */
 public final class WorkerDoors {
 	/** Horizontal distance from the worker to a door cell's centre at which the worker opens it. */
@@ -32,7 +39,10 @@ public final class WorkerDoors {
 	/** Range within which another worker heading through a door keeps it open (as vanilla). */
 	public static final double OTHER_WORKER_RANGE = 2.0;
 
-	/** Canonical positions ({@link Openables#canonicalPos}) of the doors and gates this worker opened. */
+	/**
+	 * Canonical positions ({@link Openables#canonicalPos}) of the doors and gates this worker opened, and the
+	 * positions of the climb trapdoors it opened.
+	 */
 	private final Set<BlockPos> opened = new HashSet<>();
 
 	public Set<BlockPos> opened() {
@@ -55,12 +65,13 @@ public final class WorkerDoors {
 				continue;
 			}
 			BlockState state = level.getBlockState(pos);
-			if (!Openables.isOpenable(state) || Openables.isClosedOpenable(state)) {
+			boolean trapdoor = isOpenClimbTrapdoor(level, pos);
+			if (!trapdoor && (!Openables.isOpenable(state) || Openables.isClosedOpenable(state))) {
 				continue;
 			}
-			boolean doorway = Openables.isOpenableDoor(state);
+			boolean doorway = !trapdoor && Openables.isOpenableDoor(state);
 			if (!entityInDoorway(level, worker, pos, doorway) && !otherWorkerComing(level, worker, pos)) {
-				Openables.open(level, worker, pos, false);
+				close(level, worker, pos, trapdoor);
 			}
 		}
 		opened.clear();
@@ -121,6 +132,13 @@ public final class WorkerDoors {
 		if (!level.isLoaded(cell)) {
 			return;
 		}
+		if (ClimbLinks.isClosedClimbTrapdoor(level::getBlockState, cell)) {
+			if (withinClimbOpenRange(worker.position(), cell) && Usables.setTrapdoorOpen(level, worker, cell, true)) {
+				worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+				opened.add(cell.immutable());
+			}
+			return;
+		}
 		BlockState state = level.getBlockState(cell);
 		if (!Openables.isClosedOpenable(state) || !withinOpenRange(worker.position(), cell)) {
 			return;
@@ -136,6 +154,17 @@ public final class WorkerDoors {
 		return dx * dx + dz * dz <= OPEN_RANGE * OPEN_RANGE && Math.abs(Math.floor(position.y) - cell.getY()) <= 1;
 	}
 
+	/**
+	 * As {@link #withinOpenRange}, for a climb trapdoor: the cell may also be two blocks above the worker's
+	 * feet, since a climber's head reaches the hatch while its feet are still two below it.
+	 */
+	static boolean withinClimbOpenRange(Vec3 position, BlockPos cell) {
+		double dx = position.x - (cell.getX() + 0.5);
+		double dz = position.z - (cell.getZ() + 0.5);
+		double dy = cell.getY() - Math.floor(position.y);
+		return dx * dx + dz * dz <= OPEN_RANGE * OPEN_RANGE && dy >= -1 && dy <= 2;
+	}
+
 	private void closeBehind(ServerLevel level, WorkerEntity worker) {
 		Path ownPath = worker.getNavigation().getPath();
 		Iterator<BlockPos> it = opened.iterator();
@@ -146,11 +175,12 @@ public final class WorkerDoors {
 				continue;
 			}
 			BlockState state = level.getBlockState(pos);
-			if (!Openables.isOpenable(state) || Openables.isClosedOpenable(state)) {
+			boolean trapdoor = isOpenClimbTrapdoor(level, pos);
+			if (!trapdoor && (!Openables.isOpenable(state) || Openables.isClosedOpenable(state))) {
 				it.remove();
 				continue;
 			}
-			boolean doorway = Openables.isOpenableDoor(state);
+			boolean doorway = !trapdoor && Openables.isOpenableDoor(state);
 			AABB cells = doorCells(pos, doorway);
 			boolean keep = shouldKeepOpen(
 					worker.getBoundingBox().intersects(cells),
@@ -158,9 +188,24 @@ public final class WorkerDoors {
 					entityInDoorway(level, worker, pos, doorway),
 					otherWorkerComing(level, worker, pos));
 			if (!keep) {
-				Openables.open(level, worker, pos, false);
+				close(level, worker, pos, trapdoor);
 				it.remove();
 			}
+		}
+	}
+
+	/** Whether {@code pos} holds an open trapdoor at the top of a ladder. */
+	private static boolean isOpenClimbTrapdoor(ServerLevel level, BlockPos pos) {
+		return ClimbLinks.isClimbTrapdoor(level::getBlockState, pos)
+				&& level.getBlockState(pos).getValue(TrapDoorBlock.OPEN);
+	}
+
+	/** Closes the door, gate or climb trapdoor at {@code pos} with an arm swing. */
+	private static void close(ServerLevel level, WorkerEntity worker, BlockPos pos, boolean trapdoor) {
+		if (!trapdoor) {
+			Openables.open(level, worker, pos, false);
+		} else if (Usables.setTrapdoorOpen(level, worker, pos, false)) {
+			worker.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
 		}
 	}
 

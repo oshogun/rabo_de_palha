@@ -103,6 +103,21 @@ public final class Usables {
 		return Result.USED;
 	}
 
+	/**
+	 * Opens or closes the trapdoor at {@code pos} as {@code worker}, with its sound and game event, if it is
+	 * not already that way. Does not swing the worker's arm.
+	 *
+	 * @return whether the trapdoor changed
+	 */
+	static boolean setTrapdoorOpen(Level level, WorkerEntity worker, BlockPos pos, boolean open) {
+		BlockState state = level.getBlockState(pos);
+		if (!(state.getBlock() instanceof TrapDoorBlock) || state.getValue(TrapDoorBlock.OPEN) == open) {
+			return false;
+		}
+		toggleTrapdoor(level, worker, pos, state);
+		return true;
+	}
+
 	/** Vanilla's private TrapDoorBlock#toggle, with the worker as the game event's source. */
 	private static void toggleTrapdoor(Level level, WorkerEntity worker, BlockPos pos, BlockState state) {
 		BlockState updated = state.cycle(TrapDoorBlock.OPEN);
@@ -117,7 +132,8 @@ public final class Usables {
 		level.gameEvent(worker, open ? GameEvent.BLOCK_OPEN : GameEvent.BLOCK_CLOSE, pos);
 	}
 
-	private static BlockSetType trapdoorType(TrapDoorBlock trapdoor) {
+	/** The trapdoor's block set type; {@link BlockSetType#canOpenByHand} tells wooden from iron ones. */
+	static BlockSetType trapdoorType(TrapDoorBlock trapdoor) {
 		return ((TrapDoorBlockAccessor) trapdoor).rabodepalha$type();
 	}
 }
